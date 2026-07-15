@@ -1,0 +1,30 @@
+[project]
+name = "my-ai-assistant-backend"
+version = "0.1.0"
+description = "Backend for the AI assistant"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.130,<0.140",
+    "pydantic>=2.13,<3",
+    "pydantic-ai==2.9.1",
+    "sse-starlette>=3,<4",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<0.29",
+    "pyright>=1.1,<2",
+    "pytest>=9.1,<10",
+    "pytest-asyncio>=1.4,<2",
+    "ruff>=0.15,<0.16",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.pyright]
+include = ["app", "tests"]
+pythonVersion = "3.14"
