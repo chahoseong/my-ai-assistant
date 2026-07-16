@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18.4
+    environment:
+      POSTGRES_DB: assistant_dev
+      POSTGRES_PASSWORD: assistant
+      POSTGRES_USER: assistant
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assistant -d assistant_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  postgres_data:
