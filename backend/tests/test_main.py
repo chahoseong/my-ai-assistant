@@ -1,10 +1,43 @@
-from pathlib import Path
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 import pytest
 
 import app.main
+
+
+class FakeStreamResult:
+    def __init__(self) -> None:
+        self.delta_requested: bool | None = None
+
+    async def __aenter__(self) -> "FakeStreamResult":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
+        self.delta_requested = delta
+        yield "Hello"
+        yield " world"
+
+
+class FakeAgent:
+    def __init__(self) -> None:
+        self.message: str | None = None
+        self.result = FakeStreamResult()
+
+    def run_stream(self, message: str) -> FakeStreamResult:
+        self.message = message
+        return self.result
+
+
+@pytest.fixture
+async def client() -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app.main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
 
 def test_load_llama_settings_uses_documented_defaults() -> None:
@@ -29,43 +62,32 @@ def test_load_llama_settings_allows_environment_overrides() -> None:
     assert settings.api_key == "test-key"
 
 
-def test_application_module_exists() -> None:
-    assert (Path(__file__).parents[1] / "app" / "main.py").is_file()
-
-
 def test_application_exposes_fastapi_app() -> None:
-    assert isinstance(getattr(app.main, "app", None), FastAPI)
+    assert isinstance(app.main.app, FastAPI)
 
 
 @pytest.mark.asyncio
-async def test_chat_streams_llm_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_stream_response(message: str):
-        assert message == "안녕"
-        for token in ("반", "가워요"):
-            yield {"data": token}
+async def test_chat_streams_agent_text_deltas(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(app.main, "agent", fake_agent)
 
-    monkeypatch.setattr(
-        app.main, "stream_response", fake_stream_response, raising=False
-    )
-    transport = ASGITransport(app=app.main.app)
-
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        async with client.stream(
-            "POST", "/api/chat", json={"message": "안녕"}
-        ) as response:
-            body = "".join([chunk async for chunk in response.aiter_text()])
+    async with client.stream(
+        "POST", "/api/chat", json={"message": "hello"}
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    assert "data: 반" in body
-    assert "data: 가워요" in body
+    assert "data: Hello" in body
+    assert "data:  world" in body
+    assert fake_agent.message == "hello"
+    assert fake_agent.result.delta_requested is True
 
 
 @pytest.mark.asyncio
-async def test_chat_rejects_empty_message() -> None:
-    transport = ASGITransport(app=app.main.app)
-
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/api/chat", json={"message": ""})
+async def test_chat_rejects_empty_message(client: AsyncClient) -> None:
+    response = await client.post("/api/chat", json={"message": ""})
 
     assert response.status_code == 422
