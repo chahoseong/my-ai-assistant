@@ -63,6 +63,20 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 The response is an SSE stream containing `data:` events as text is generated.
 
+## Stream errors
+
+If llama-server cannot be reached or fails while generating text, the HTTP response
+has already started and cannot change to an HTTP 500 status. The API instead sends a
+safe SSE error event:
+
+```text
+event: error
+data: Unable to generate a response.
+```
+
+The server logs the detailed exception with the `chat_stream_failed` event name.
+The SSE response deliberately does not expose the internal exception message.
+
 ## Quality checks
 
 ```powershell
