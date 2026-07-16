@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
@@ -31,6 +32,19 @@ class FakeAgent:
     def run_stream(self, message: str) -> FakeStreamResult:
         self.message = message
         return self.result
+
+
+class FailingStream:
+    async def __aenter__(self) -> None:
+        raise RuntimeError("connection refused")
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+class FailingAgent:
+    def run_stream(self, message: str) -> FailingStream:
+        return FailingStream()
 
 
 @pytest.fixture
@@ -84,6 +98,32 @@ async def test_chat_streams_agent_text_deltas(
     assert "data:  world" in body
     assert fake_agent.message == "hello"
     assert fake_agent.result.delta_requested is True
+
+
+@pytest.mark.asyncio
+async def test_chat_streams_safe_error_event_when_agent_fails(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(app.main, "agent", FailingAgent())
+
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        async with client.stream(
+            "POST", "/api/chat", json={"message": "hello"}
+        ) as response:
+            body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert "data: Unable to generate a response." in body
+    assert "connection refused" not in body
+    assert any(record.message == "chat_stream_failed" for record in caplog.records)
+    assert any(
+        getattr(record, "event", None) == "chat_stream_failed"
+        for record in caplog.records
+    )
+    assert "connection refused" in caplog.text
 
 
 @pytest.mark.asyncio

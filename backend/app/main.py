@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -11,10 +12,12 @@ from sse_starlette import EventSourceResponse
 
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it-qat-q4_0-gguf"
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
 DEFAULT_API_KEY = "llama.cpp"
+STREAM_ERROR_MESSAGE = "Unable to generate a response."
 
 
 @dataclass(frozen=True)
@@ -52,9 +55,13 @@ class ChatRequest(BaseModel):
 
 
 async def stream_response(message: str) -> AsyncIterator[dict[str, str]]:
-    async with agent.run_stream(message) as result:
-        async for token in result.stream_text(delta=True):
-            yield {"data": token}
+    try:
+        async with agent.run_stream(message) as result:
+            async for token in result.stream_text(delta=True):
+                yield {"data": token}
+    except Exception:
+        logger.exception("chat_stream_failed", extra={"event": "chat_stream_failed"})
+        yield {"event": "error", "data": STREAM_ERROR_MESSAGE}
 
 
 @app.post("/api/chat")
