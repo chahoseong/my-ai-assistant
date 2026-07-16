@@ -4,7 +4,7 @@
 
 - Python 3.14 (uv가 `.python-version`에 맞는 인터프리터를 관리한다.)
 - llama.cpp의 `llama-server`
-- `gemma-4-E4B_q4_0-it.gguf` 모델 파일
+- `gemma-4-E4B_q4_0-it.gguf` 모델 파일 (Hugging Face 모델 이름: `google/gemma-4-E4B-it-qat-q4_0-gguf`)
 
 ## Configuration
 
