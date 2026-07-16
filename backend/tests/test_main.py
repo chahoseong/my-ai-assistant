@@ -1,8 +1,9 @@
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from pydantic_ai import ModelMessage, ModelRequest
 import pytest
 
 import app.main
@@ -27,10 +28,17 @@ class FakeStreamResult:
 class FakeAgent:
     def __init__(self) -> None:
         self.message: str | None = None
+        self.message_history: Sequence[ModelMessage] | None = None
         self.result = FakeStreamResult()
 
-    def run_stream(self, message: str) -> FakeStreamResult:
+    def run_stream(
+        self,
+        message: str,
+        *,
+        message_history: Sequence[ModelMessage] | None = None,
+    ) -> FakeStreamResult:
         self.message = message
+        self.message_history = message_history
         return self.result
 
 
@@ -43,7 +51,12 @@ class FailingStream:
 
 
 class FailingAgent:
-    def run_stream(self, message: str) -> FailingStream:
+    def run_stream(
+        self,
+        message: str,
+        *,
+        message_history: Sequence[ModelMessage] | None = None,
+    ) -> FailingStream:
         return FailingStream()
 
 
@@ -145,3 +158,18 @@ async def test_chat_rejects_empty_message(client: AsyncClient) -> None:
     response = await client.post("/api/chat", json={"message": ""})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_stream_response_passes_message_history_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(app.main, "agent", fake_agent)
+    history = [ModelRequest.user_text_prompt("previous")]
+
+    events = [event async for event in app.main.stream_response("current", history)]
+
+    assert events == [{"data": "Hello"}, {"data": " world"}]
+    assert fake_agent.message == "current"
+    assert fake_agent.message_history == history
