@@ -6,6 +6,28 @@
 - llama.cpp의 `llama-server`
 - `gemma-4-E4B_q4_0-it.gguf` 모델 파일
 
+## Configuration
+
+The API sends the following model identifier to the OpenAI-compatible server by default:
+
+```text
+google/gemma-4-E4B-it-qat-q4_0-gguf
+```
+
+Override any connection value with environment variables before starting FastAPI:
+
+| Variable | Default |
+| --- | --- |
+| `LLAMA_MODEL` | `google/gemma-4-E4B-it-qat-q4_0-gguf` |
+| `LLAMA_BASE_URL` | `http://127.0.0.1:8080/v1` |
+| `LLAMA_API_KEY` | `llama.cpp` |
+
+For example:
+
+```powershell
+$env:LLAMA_BASE_URL = "http://127.0.0.1:8080/v1"
+```
+
 ## Run
 
 Install the project dependencies:

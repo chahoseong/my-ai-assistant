@@ -7,6 +7,28 @@ import pytest
 import app.main
 
 
+def test_load_llama_settings_uses_documented_defaults() -> None:
+    settings = app.main.load_llama_settings({})
+
+    assert settings.model == "google/gemma-4-E4B-it-qat-q4_0-gguf"
+    assert settings.base_url == "http://127.0.0.1:8080/v1"
+    assert settings.api_key == "llama.cpp"
+
+
+def test_load_llama_settings_allows_environment_overrides() -> None:
+    settings = app.main.load_llama_settings(
+        {
+            "LLAMA_MODEL": "test-model",
+            "LLAMA_BASE_URL": "http://llama.example/v1",
+            "LLAMA_API_KEY": "test-key",
+        }
+    )
+
+    assert settings.model == "test-model"
+    assert settings.base_url == "http://llama.example/v1"
+    assert settings.api_key == "test-key"
+
+
 def test_application_module_exists() -> None:
     assert (Path(__file__).parents[1] / "app" / "main.py").is_file()
 
