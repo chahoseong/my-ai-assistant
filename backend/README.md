@@ -102,11 +102,26 @@ FastAPI when using a different model server.
 
 ### FastAPI
 
-In the backend directory, with `DATABASE_URL` pointing to `assistant_dev`:
+In the backend directory, with `DATABASE_URL` pointing to `assistant_dev`.
+On Windows, set UTF-8 output so the FastAPI CLI can render its startup
+messages in a `cp949` PowerShell console:
 
 ```powershell
-uv run fastapi dev app/main.py
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000
 ```
+
+After startup, verify that the current application is loaded before sending
+requests:
+
+```powershell
+$openapi = Invoke-RestMethod -Uri "http://127.0.0.1:8000/openapi.json"
+$openapi.paths.PSObject.Properties.Name | Sort-Object
+```
+
+The output must include `/api/conversations` and
+`/api/conversations/{conversation_id}/messages`.
 
 ## Multi-turn API walkthrough
 
