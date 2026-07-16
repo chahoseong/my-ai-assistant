@@ -11,10 +11,12 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from sse_starlette import EventSourceResponse
 
 from app.routers.conversations import router as conversations_router
+from app.routers.messages import router as messages_router
 
 
 app = FastAPI()
 app.include_router(conversations_router, prefix="/api/conversations")
+app.include_router(messages_router, prefix="/api/conversations")
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it-qat-q4_0-gguf"
