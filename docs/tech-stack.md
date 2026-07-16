@@ -19,8 +19,9 @@
 - **동시성**: asyncio, threading (Python 표준 라이브러리)
 - **데이터 검증/직렬화**: Pydantic 2.13.x
 - **실시간 통신**: SSE(`sse-starlette`), WebSocket(FastAPI 내장)
-- **데이터베이스**: PostgreSQL 18.4
+- **데이터베이스**: PostgreSQL 18.4 (Docker Compose로 실행, `postgres:18.4` 이미지)
 - **ORM/드라이버**: SQLAlchemy 2.0.51 (async) + asyncpg 0.31.0
+- **DB 마이그레이션**: Alembic 1.18.x
 - **린트/포맷**: Ruff 0.15.x
 - **타입 체크**: Pyright 1.1.x
 - **테스트**: pytest 9.1.x + httpx 0.28.x + pytest-asyncio 1.4.x
