@@ -20,6 +20,19 @@ DEFAULT_API_KEY = "llama.cpp"
 STREAM_ERROR_MESSAGE = "Unable to generate a response."
 
 
+def configure_logger() -> None:
+    if not any(type(handler) is logging.StreamHandler for handler in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
+        logger.addHandler(handler)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+configure_logger()
+
+
 @dataclass(frozen=True)
 class LlamaSettings:
     model: str

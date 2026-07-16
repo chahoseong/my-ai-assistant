@@ -80,6 +80,20 @@ def test_application_exposes_fastapi_app() -> None:
     assert isinstance(app.main.app, FastAPI)
 
 
+def test_configure_logger_adds_one_console_handler_without_propagation() -> None:
+    app.main.configure_logger()
+    app.main.configure_logger()
+
+    console_handlers = [
+        handler
+        for handler in app.main.logger.handlers
+        if type(handler) is logging.StreamHandler
+    ]
+
+    assert len(console_handlers) == 1
+    assert app.main.logger.propagate is False
+
+
 @pytest.mark.asyncio
 async def test_chat_streams_agent_text_deltas(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
