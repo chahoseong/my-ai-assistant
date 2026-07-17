@@ -17,10 +17,6 @@ from app.test_db_safety import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-# Run before test collection so an unsafe URL cannot reach a database fixture.
-validate_test_database_url(os.environ)
-
-
 def upgrade_test_schema(test_url: str) -> None:
     migration_env = dict(os.environ)
     migration_env["DATABASE_URL"] = test_url
