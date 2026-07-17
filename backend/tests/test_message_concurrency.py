@@ -5,10 +5,14 @@ from uuid import UUID
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage
 import pytest
+from starlette.types import Message, Scope
 
 import app.dependencies
 import app.main
+import app.routers.chat as chat_router
+from app.concurrency import release_conversation, try_acquire_conversation
 from app.models import Conversation
+from app.schemas import ConversationMessageCreate
 
 
 class BlockingStreamResult:
@@ -216,3 +220,59 @@ async def test_cancelled_stream_releases_lock_for_next_request(
                     await third_task
 
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_disconnect_before_stream_iterator_starts_releases_lock(
+    test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conversation_id = UUID(int=604)
+    await create_conversation(test_database, conversation_id)
+
+    agent_called = False
+
+    def fail_if_stream_starts():
+        nonlocal agent_called
+        agent_called = True
+        raise AssertionError("the stream iterator must not start")
+
+    monkeypatch.setattr(chat_router, "get_stream_agent", fail_if_stream_starts)
+    response = await chat_router.send_message(
+        conversation_id,
+        ConversationMessageCreate(message="disconnect before stream"),
+        test_database,
+    )
+
+    response_started = asyncio.Event()
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            response_started.set()
+            await asyncio.Event().wait()
+
+    async def receive() -> Message:
+        await response_started.wait()
+        return {"type": "http.disconnect"}
+
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "method": "POST",
+        "path": "/api/conversations/604/messages",
+        "raw_path": b"/api/conversations/604/messages",
+        "query_string": b"",
+        "headers": [],
+        "scheme": "http",
+        "client": ("test", 123),
+        "server": ("test", 80),
+    }
+
+    await response(scope, receive, send)
+
+    assert agent_called is False
+    acquired = await try_acquire_conversation(conversation_id)
+    try:
+        assert acquired is True
+    finally:
+        if acquired:
+            await release_conversation(conversation_id)

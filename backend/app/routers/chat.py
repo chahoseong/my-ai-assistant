@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic_ai import ModelMessage
+from starlette.background import BackgroundTask
 from sse_starlette import EventSourceResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -132,7 +133,8 @@ async def send_message(
                 conversation_id,
                 payload.message,
                 history,
-            )
+            ),
+            background=BackgroundTask(release_conversation, conversation_id),
         )
         ownership_transferred = True
         return response
