@@ -4,6 +4,7 @@ from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 import app.dependencies
@@ -52,6 +53,42 @@ async def test_create_conversation_allows_missing_title(
 
     assert response.status_code == 201
     assert response.json()["title"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_accepts_title_at_maximum_length(
+    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    title = "t" * 200
+
+    response = await client.post("/api/conversations", json={"title": title})
+
+    assert response.status_code == 201
+    assert response.json()["title"] == title
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_rejects_title_over_maximum_length(
+    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+
+    async with test_database.session_factory() as session:
+        before_count = await session.scalar(
+            select(func.count()).select_from(Conversation)
+        )
+
+    response = await client.post("/api/conversations", json={"title": "t" * 201})
+
+    assert response.status_code == 422
+
+    async with test_database.session_factory() as session:
+        after_count = await session.scalar(
+            select(func.count()).select_from(Conversation)
+        )
+
+    assert after_count == before_count
 
 
 class FailingSession:
