@@ -198,11 +198,6 @@ uv run fastapi dev app/main.py
 Call the message-list endpoint again with the same conversation ID. The rows
 remain because they are stored in PostgreSQL, not in process memory.
 
-## Existing single-turn endpoint
-
-`POST /api/chat` remains available for the original single-turn SSE flow. The
-conversation endpoint is the persistence-backed multi-turn API.
-
 ## Official references
 
 - Docker Compose: https://docs.docker.com/compose/

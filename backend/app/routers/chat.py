@@ -25,7 +25,7 @@ STREAM_ERROR_MESSAGE = "Unable to generate a response."
 
 def get_stream_agent():
     # The composition root owns the configured agent. Import lazily to avoid a
-    # module cycle while keeping the existing /api/chat test seam intact.
+    # module cycle.
     from app.main import agent
 
     return agent

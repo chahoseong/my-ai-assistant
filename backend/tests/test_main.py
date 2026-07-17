@@ -1,65 +1,13 @@
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from pydantic_ai import ModelMessage, ModelRequest
 import pytest
 from fastapi.testclient import TestClient
 
 import app.dependencies
 import app.main
-
-
-class FakeStreamResult:
-    def __init__(self) -> None:
-        self.delta_requested: bool | None = None
-
-    async def __aenter__(self) -> "FakeStreamResult":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        self.delta_requested = delta
-        yield "Hello"
-        yield " world"
-
-
-class FakeAgent:
-    def __init__(self) -> None:
-        self.message: str | None = None
-        self.message_history: Sequence[ModelMessage] | None = None
-        self.result = FakeStreamResult()
-
-    def run_stream(
-        self,
-        message: str,
-        *,
-        message_history: Sequence[ModelMessage] | None = None,
-    ) -> FakeStreamResult:
-        self.message = message
-        self.message_history = message_history
-        return self.result
-
-
-class FailingStream:
-    async def __aenter__(self) -> None:
-        raise RuntimeError("connection refused")
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-
-class FailingAgent:
-    def run_stream(
-        self,
-        message: str,
-        *,
-        message_history: Sequence[ModelMessage] | None = None,
-    ) -> FailingStream:
-        return FailingStream()
 
 
 @pytest.fixture
@@ -144,68 +92,7 @@ def test_configure_logger_receives_child_router_logs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_streams_agent_text_deltas(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_agent = FakeAgent()
-    monkeypatch.setattr(app.main, "agent", fake_agent)
+async def test_legacy_chat_endpoint_is_removed(client: AsyncClient) -> None:
+    response = await client.post("/api/chat", json={"message": "hello"})
 
-    async with client.stream(
-        "POST", "/api/chat", json={"message": "hello"}
-    ) as response:
-        body = "".join([chunk async for chunk in response.aiter_text()])
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    assert "data: Hello" in body
-    assert "data:  world" in body
-    assert fake_agent.message == "hello"
-    assert fake_agent.result.delta_requested is True
-
-
-@pytest.mark.asyncio
-async def test_chat_streams_safe_error_event_when_agent_fails(
-    client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.setattr(app.main, "agent", FailingAgent())
-
-    with caplog.at_level(logging.ERROR, logger="app.main"):
-        async with client.stream(
-            "POST", "/api/chat", json={"message": "hello"}
-        ) as response:
-            body = "".join([chunk async for chunk in response.aiter_text()])
-
-    assert response.status_code == 200
-    assert "event: error" in body
-    assert "data: Unable to generate a response." in body
-    assert "connection refused" not in body
-    assert any(record.message == "chat_stream_failed" for record in caplog.records)
-    assert any(
-        getattr(record, "event", None) == "chat_stream_failed"
-        for record in caplog.records
-    )
-    assert "connection refused" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_chat_rejects_empty_message(client: AsyncClient) -> None:
-    response = await client.post("/api/chat", json={"message": ""})
-
-    assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_stream_response_passes_message_history_to_agent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_agent = FakeAgent()
-    monkeypatch.setattr(app.main, "agent", fake_agent)
-    history = [ModelRequest.user_text_prompt("previous")]
-
-    events = [event async for event in app.main.stream_response("current", history)]
-
-    assert events == [{"data": "Hello"}, {"data": " world"}]
-    assert fake_agent.message == "current"
-    assert fake_agent.message_history == history
+    assert response.status_code == 404

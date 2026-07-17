@@ -1,11 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
-from pydantic_ai import ModelMessage
-from sse_starlette import EventSourceResponse
 
 from app.agent import (
     create_agent,
@@ -49,30 +46,3 @@ configure_logger()
 
 
 agent = create_agent(load_llama_settings())
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=8_000)
-
-
-async def stream_response(
-    message: str,
-    message_history: Sequence[ModelMessage] | None = None,
-) -> AsyncIterator[dict[str, str]]:
-    try:
-        if message_history:
-            stream = agent.run_stream(message, message_history=message_history)
-        else:
-            stream = agent.run_stream(message)
-
-        async with stream as result:
-            async for token in result.stream_text(delta=True):
-                yield {"data": token}
-    except Exception:
-        logger.exception("chat_stream_failed", extra={"event": "chat_stream_failed"})
-        yield {"event": "error", "data": STREAM_ERROR_MESSAGE}
-
-
-@app.post("/api/chat")
-async def chat(request: ChatRequest) -> EventSourceResponse:
-    return EventSourceResponse(stream_response(request.message))
