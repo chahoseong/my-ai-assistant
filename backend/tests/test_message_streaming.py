@@ -12,6 +12,7 @@ from pydantic_ai import (
 )
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.dependencies
 import app.main
@@ -136,6 +137,49 @@ async def test_send_message_streams_and_persists_complete_turn(
         "Hello world",
     ]
     assert f"data: {stored_messages[-1].id}" in body
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
+    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
+    conversation_id = UUID(int=403)
+
+    async with test_database.session_factory() as session:
+        session.add(Conversation(id=conversation_id))
+        await session.commit()
+
+    async def fail_refresh(
+        _session: AsyncSession, _instance: object, *args: object, **kwargs: object
+    ) -> None:
+        raise RuntimeError("simulated refresh failure")
+
+    monkeypatch.setattr(AsyncSession, "refresh", fail_refresh)
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "question"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "event: done" in body
+    assert "event: error" not in body
+
+    async with test_database.session_factory() as session:
+        stored_messages = list(
+            await session.scalars(
+                select(Message).where(Message.conversation_id == conversation_id)
+            )
+        )
+
+    assert [(message.role, message.content) for message in stored_messages] == [
+        ("user", "question"),
+        ("assistant", "answer"),
+    ]
 
 
 @pytest.mark.asyncio
