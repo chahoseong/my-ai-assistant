@@ -19,7 +19,7 @@ app = FastAPI()
 app.include_router(conversations_router, prefix="/api/conversations")
 app.include_router(messages_router, prefix="/api/conversations")
 app.include_router(chat_router, prefix="/api/conversations")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
 
 STREAM_ERROR_MESSAGE = "Unable to generate a response."
 
