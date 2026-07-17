@@ -57,6 +57,7 @@ async def stream_persisted_message(
             )
             session.add(assistant_message)
             await session.commit()
+            await session.refresh(assistant_message)
 
         yield {"event": "done", "data": str(assistant_message.id)}
     except asyncio.CancelledError:
