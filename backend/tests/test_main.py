@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage, ModelRequest
 import pytest
+from fastapi.testclient import TestClient
 
+import app.dependencies
 import app.main
 
 
@@ -91,6 +93,17 @@ def test_load_llama_settings_allows_environment_overrides() -> None:
 
 def test_application_exposes_fastapi_app() -> None:
     assert isinstance(app.main.app, FastAPI)
+
+
+def test_application_startup_requires_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(app.dependencies, "database", None)
+
+    with pytest.raises(ValueError, match="DATABASE_URL must be set"):
+        with TestClient(app.main.app):
+            pass
 
 
 def test_configure_logger_adds_one_console_handler_without_propagation() -> None:

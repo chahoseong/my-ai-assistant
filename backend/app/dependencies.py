@@ -18,6 +18,14 @@ def get_database() -> Database:
     return database
 
 
+async def dispose_database() -> None:
+    global database
+    current_database = database
+    database = None
+    if current_database is not None:
+        await current_database.dispose()
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     current_database = get_database()
     async with current_database.session_factory() as session:
