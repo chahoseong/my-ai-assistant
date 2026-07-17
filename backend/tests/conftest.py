@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest_asyncio
 
 from app.db import Database, create_database
-from app.test_db_safety import truncate_test_database, validate_test_database_url
+from app.test_db_safety import (
+    truncate_test_database,
+    validate_test_database_identity,
+    validate_test_database_url,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +35,8 @@ def upgrade_test_schema(test_url: str) -> None:
 @pytest_asyncio.fixture
 async def test_database() -> AsyncIterator[Database]:
     test_url = validate_test_database_url(os.environ)
+    database_url = os.environ["DATABASE_URL"]
+    await validate_test_database_identity(database_url, test_url)
     upgrade_test_schema(test_url)
     database = create_database(test_url)
 
