@@ -29,8 +29,6 @@ app.include_router(messages_router, prefix="/api/conversations")
 app.include_router(chat_router, prefix="/api/conversations")
 logger = logging.getLogger("app")
 
-STREAM_ERROR_MESSAGE = "Unable to generate a response."
-
 
 def configure_logger() -> None:
     if not any(type(handler) is logging.StreamHandler for handler in logger.handlers):
