@@ -186,17 +186,6 @@ returns `404`; an existing conversation with no messages returns `200` and
 - If the client disconnects, the in-process conversation lock is released in
   `finally`, allowing a later request to continue.
 
-### Conversation lock deployment scope
-
-The current conversation lock is held in Python process memory. The `409`
-guarantee therefore applies only within one FastAPI process (the development
-server runs with one worker). Running multiple workers or multiple application
-replicas gives each process its own lock set, so requests for the same
-conversation could be accepted by different processes at the same time.
-Before scaling out, replace this process-local lock with a shared coordinator,
-such as a PostgreSQL advisory lock or Redis, and preserve the same acquire and
-release semantics.
-
 ## Persistence after restart
 
 Stop and restart only the FastAPI process, leaving PostgreSQL running:
