@@ -4,47 +4,10 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 import pytest
+from fastapi.testclient import TestClient
 
+import app.dependencies
 import app.main
-
-
-class FakeStreamResult:
-    def __init__(self) -> None:
-        self.delta_requested: bool | None = None
-
-    async def __aenter__(self) -> "FakeStreamResult":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        self.delta_requested = delta
-        yield "Hello"
-        yield " world"
-
-
-class FakeAgent:
-    def __init__(self) -> None:
-        self.message: str | None = None
-        self.result = FakeStreamResult()
-
-    def run_stream(self, message: str) -> FakeStreamResult:
-        self.message = message
-        return self.result
-
-
-class FailingStream:
-    async def __aenter__(self) -> None:
-        raise RuntimeError("connection refused")
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-
-class FailingAgent:
-    def run_stream(self, message: str) -> FailingStream:
-        return FailingStream()
 
 
 @pytest.fixture
@@ -80,10 +43,22 @@ def test_application_exposes_fastapi_app() -> None:
     assert isinstance(app.main.app, FastAPI)
 
 
+def test_application_startup_requires_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(app.dependencies, "database", None)
+
+    with pytest.raises(ValueError, match="DATABASE_URL must be set"):
+        with TestClient(app.main.app):
+            pass
+
+
 def test_configure_logger_adds_one_console_handler_without_propagation() -> None:
     app.main.configure_logger()
     app.main.configure_logger()
 
+    assert app.main.logger.name == "app"
     console_handlers = [
         handler
         for handler in app.main.logger.handlers
@@ -94,54 +69,30 @@ def test_configure_logger_adds_one_console_handler_without_propagation() -> None
     assert app.main.logger.propagate is False
 
 
-@pytest.mark.asyncio
-async def test_chat_streams_agent_text_deltas(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_agent = FakeAgent()
-    monkeypatch.setattr(app.main, "agent", fake_agent)
+def test_configure_logger_receives_child_router_logs() -> None:
+    class RecordingHandler(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.records: list[logging.LogRecord] = []
 
-    async with client.stream(
-        "POST", "/api/chat", json={"message": "hello"}
-    ) as response:
-        body = "".join([chunk async for chunk in response.aiter_text()])
+        def emit(self, record: logging.LogRecord) -> None:
+            self.records.append(record)
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    assert "data: Hello" in body
-    assert "data:  world" in body
-    assert fake_agent.message == "hello"
-    assert fake_agent.result.delta_requested is True
+    app.main.configure_logger()
+    recording_handler = RecordingHandler()
+    app.main.logger.addHandler(recording_handler)
+    try:
+        logging.getLogger("app.routers.chat").error("router_log_probe")
+    finally:
+        app.main.logger.removeHandler(recording_handler)
 
-
-@pytest.mark.asyncio
-async def test_chat_streams_safe_error_event_when_agent_fails(
-    client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.setattr(app.main, "agent", FailingAgent())
-
-    with caplog.at_level(logging.ERROR, logger="app.main"):
-        async with client.stream(
-            "POST", "/api/chat", json={"message": "hello"}
-        ) as response:
-            body = "".join([chunk async for chunk in response.aiter_text()])
-
-    assert response.status_code == 200
-    assert "event: error" in body
-    assert "data: Unable to generate a response." in body
-    assert "connection refused" not in body
-    assert any(record.message == "chat_stream_failed" for record in caplog.records)
-    assert any(
-        getattr(record, "event", None) == "chat_stream_failed"
-        for record in caplog.records
-    )
-    assert "connection refused" in caplog.text
+    assert [record.getMessage() for record in recording_handler.records] == [
+        "router_log_probe"
+    ]
 
 
 @pytest.mark.asyncio
-async def test_chat_rejects_empty_message(client: AsyncClient) -> None:
-    response = await client.post("/api/chat", json={"message": ""})
+async def test_legacy_chat_endpoint_is_removed(client: AsyncClient) -> None:
+    response = await client.post("/api/chat", json={"message": "hello"})
 
-    assert response.status_code == 422
+    assert response.status_code == 404
