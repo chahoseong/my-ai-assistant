@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.dependencies
 import app.main
+from app.concurrency import release_conversation, try_acquire_conversation
 from app.models import Conversation, Message
+from app.routers import chat as chat_router
+from app.schemas import ConversationMessageCreate
 
 
 class FakeStreamResult:
@@ -180,6 +183,37 @@ async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
         ("user", "question"),
         ("assistant", "answer"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_background_cleanup_does_not_release_new_owner(
+    test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
+    conversation_id = UUID(int=404)
+
+    async with test_database.session_factory() as session:
+        session.add(Conversation(id=conversation_id))
+        await session.commit()
+
+    response = await chat_router.send_message(
+        conversation_id,
+        ConversationMessageCreate(message="question"),
+        test_database,
+    )
+    _ = [event async for event in response.body_iterator]
+
+    acquired_by_next_request = await try_acquire_conversation(conversation_id)
+    assert acquired_by_next_request is True
+    try:
+        assert response.background is not None
+        await response.background()
+
+        acquired_by_third_request = await try_acquire_conversation(conversation_id)
+        assert acquired_by_third_request is False
+    finally:
+        await release_conversation(conversation_id)
 
 
 @pytest.mark.asyncio

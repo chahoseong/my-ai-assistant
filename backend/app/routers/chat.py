@@ -11,7 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.agent import build_message_history
-from app.concurrency import release_conversation, try_acquire_conversation
+from app.concurrency import (
+    ConversationLease,
+    try_acquire_conversation,
+)
 from app.db import Database
 from app.dependencies import get_database
 from app.models import Conversation, Message
@@ -36,6 +39,7 @@ async def stream_persisted_message(
     conversation_id: UUID,
     user_prompt: str,
     message_history: Sequence[ModelMessage],
+    lease: ConversationLease,
 ) -> AsyncIterator[dict[str, str]]:
     try:
         response_parts: list[str] = []
@@ -67,7 +71,7 @@ async def stream_persisted_message(
         )
         yield {"event": "error", "data": STREAM_ERROR_MESSAGE}
     finally:
-        await release_conversation(conversation_id)
+        await lease.release()
 
 
 @router.post("/{conversation_id}/messages")
@@ -99,6 +103,7 @@ async def send_message(
             detail="A message is already being generated for this conversation.",
         )
 
+    lease = ConversationLease(conversation_id)
     ownership_transferred = False
     try:
         async with database.session_factory() as session:
@@ -132,11 +137,12 @@ async def send_message(
                 conversation_id,
                 payload.message,
                 history,
+                lease,
             ),
-            background=BackgroundTask(release_conversation, conversation_id),
+            background=BackgroundTask(lease.release),
         )
         ownership_transferred = True
         return response
     finally:
         if not ownership_transferred:
-            await release_conversation(conversation_id)
+            await lease.release()
