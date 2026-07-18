@@ -2,7 +2,27 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.security import normalize_username
+
+
+class SignupRequest(BaseModel):
+    username: str
+    password: str = Field(min_length=15, max_length=128)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def canonicalize_username(cls, value: str) -> str:
+        return normalize_username(value)
+
+
+class PublicUser(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    created_at: datetime
 
 
 class ConversationCreate(BaseModel):

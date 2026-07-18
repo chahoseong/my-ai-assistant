@@ -22,6 +22,8 @@ PASSWORD_HASHER = PasswordHasher(
 
 
 def normalize_username(raw: str) -> str:
+    if not isinstance(raw, str):
+        raise ValueError("Invalid username.")
     canonical = raw.strip().lower()
     if not 3 <= len(canonical) <= 50 or re.fullmatch(r"[a-z0-9_]+", canonical) is None:
         raise ValueError("Invalid username.")
