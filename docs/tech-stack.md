@@ -25,10 +25,10 @@
 - **린트/포맷**: Ruff 0.15.x
 - **타입 체크**: Pyright 1.1.x
 - **테스트**: pytest 9.1.x + httpx 0.28.x + pytest-asyncio 1.4.x
+- **인증/인가**: 세션 쿠키 (`secrets` 표준 라이브러리) + Argon2id 비밀번호 해싱 (argon2-cffi 25.1.x)
 
 <!--
 - **캐시**: 미정
-- **인증/인가**: 미정
 -->
 
 ## Agent
