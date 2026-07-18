@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.dependencies
 import app.main
 from app.concurrency import release_conversation, try_acquire_conversation
-from app.models import Conversation, Message
+from app.models import Conversation, Message, User
 from app.routers import chat as chat_router
 from app.schemas import ConversationMessageCreate
 
@@ -56,15 +56,27 @@ class RecordingAgent:
 
 
 @pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
+async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    user = await user_factory()
+    _, token = await session_factory(user=user)
+    return user, token
+
+
+@pytest.fixture
+async def client(authenticated_user) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app.main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set("assistant_session", authenticated_user[1])
         yield client
 
 
 @pytest.mark.asyncio
 async def test_send_message_streams_and_persists_complete_turn(
-    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app.dependencies, "database", test_database)
     fake_agent = RecordingAgent(["Hello", " world"])
@@ -75,6 +87,7 @@ async def test_send_message_streams_and_persists_complete_turn(
         session.add(
             Conversation(
                 id=conversation_id,
+                user_id=authenticated_user[0].id,
                 messages=[
                     Message(
                         id=UUID(int=401),
@@ -144,14 +157,17 @@ async def test_send_message_streams_and_persists_complete_turn(
 
 @pytest.mark.asyncio
 async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
-    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
     conversation_id = UUID(int=403)
 
     async with test_database.session_factory() as session:
-        session.add(Conversation(id=conversation_id))
+        session.add(Conversation(id=conversation_id, user_id=authenticated_user[0].id))
         await session.commit()
 
     async def fail_refresh(
@@ -192,14 +208,19 @@ async def test_background_cleanup_does_not_release_new_owner(
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
     conversation_id = UUID(int=404)
+    owner_id = UUID(int=405)
 
     async with test_database.session_factory() as session:
-        session.add(Conversation(id=conversation_id))
+        session.add(User(id=owner_id, username="owner", password_hash="test"))
+        session.add(Conversation(id=conversation_id, user_id=owner_id))
         await session.commit()
 
+    # Direct-call coverage is handled by HTTP tests; this path only exercises
+    # lease cleanup and uses an explicit owner prepared below.
     response = await chat_router.send_message(
         conversation_id,
         ConversationMessageCreate(message="question"),
+        User(id=owner_id, username="owner", password_hash="test"),
         test_database,
     )
     _ = [event async for event in response.body_iterator]
@@ -231,3 +252,42 @@ async def test_send_message_rejects_missing_conversation_before_sse(
 
     assert response.status_code == 404
     assert fake_agent.message is None
+
+
+@pytest.mark.asyncio
+async def test_send_message_requires_authentication_before_sse() -> None:
+    transport = ASGITransport(app=app.main.app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as anonymous_client:
+        response = await anonymous_client.post(
+            f"/api/conversations/{UUID(int=498)}/messages",
+            json={"message": "current question"},
+        )
+
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.asyncio
+async def test_non_owner_gets_not_found_before_conversation_lock(
+    client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    owner = await user_factory(username="owner")
+    conversation_id = UUID(int=497)
+    async with test_database.session_factory() as session:
+        session.add(Conversation(id=conversation_id, user_id=owner.id))
+        await session.commit()
+
+    assert await try_acquire_conversation(conversation_id) is True
+    try:
+        response = await client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            json={"message": "current question"},
+        )
+    finally:
+        await release_conversation(conversation_id)
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
