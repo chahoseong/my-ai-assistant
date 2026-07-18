@@ -65,6 +65,21 @@ async def test_create_conversation_requires_authentication() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_conversation_rejects_non_json_content_type(
+    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+
+    response = await client.post(
+        "/api/conversations",
+        content='{"title":"plain"}',
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+
+
+@pytest.mark.asyncio
 async def test_create_conversation_allows_missing_title(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:

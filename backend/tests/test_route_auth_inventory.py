@@ -15,7 +15,7 @@ def test_openapi_authentication_route_inventory_is_stable() -> None:
         ("post", "/api/conversations"),
         ("get", "/api/conversations/{conversation_id}/messages"),
         ("post", "/api/conversations/{conversation_id}/messages"),
-    } <= {
+    } == {
         (method, path)
         for path, operations in paths.items()
         for method in operations

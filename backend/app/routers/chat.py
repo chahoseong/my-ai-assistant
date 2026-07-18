@@ -16,7 +16,7 @@ from app.concurrency import (
     try_acquire_conversation,
 )
 from app.db import Database
-from app.dependencies import CurrentUserForUnsafeRequest, get_database
+from app.dependencies import CurrentUserForUnsafeRequest, JsonRequest, get_database
 from app.models import Conversation, Message
 from app.schemas import ConversationMessageCreate
 
@@ -79,6 +79,7 @@ async def send_message(
     conversation_id: UUID,
     payload: ConversationMessageCreate,
     current_user: CurrentUserForUnsafeRequest,
+    _: JsonRequest,
     database: Database = Depends(get_database),
 ) -> EventSourceResponse:
     try:

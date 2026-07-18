@@ -261,6 +261,7 @@ async def test_disconnect_before_stream_iterator_starts_releases_lock(
         conversation_id,
         ConversationMessageCreate(message="disconnect before stream"),
         owner,
+        None,
         test_database,
     )
 

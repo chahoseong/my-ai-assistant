@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import CurrentUserForUnsafeRequest, get_session
+from app.dependencies import CurrentUserForUnsafeRequest, JsonRequest, get_session
 from app.models import Conversation
 from app.schemas import ConversationCreate, ConversationResponse
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 async def create_conversation(
     payload: ConversationCreate,
     current_user: CurrentUserForUnsafeRequest,
+    _: JsonRequest,
     session: AsyncSession = Depends(get_session),
 ) -> Conversation:
     conversation = Conversation(title=payload.title, user_id=current_user.id)

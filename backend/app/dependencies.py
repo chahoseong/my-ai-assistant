@@ -59,19 +59,20 @@ JsonRequest = Annotated[None, Depends(enforce_json_request)]
 
 async def get_current_user(
     session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
-    session: AsyncSession = Depends(get_session),
+    current_database: Database = Depends(get_database),
 ) -> User:
     if session_token is None or len(session_token) > 256:
         raise _invalid_session()
 
-    user = await session.scalar(
-        select(User)
-        .join(AuthSession)
-        .where(
-            AuthSession.token_hash == hash_session_token(session_token),
-            AuthSession.expires_at > func.now(),
+    async with current_database.session_factory() as session:
+        user = await session.scalar(
+            select(User)
+            .join(AuthSession)
+            .where(
+                AuthSession.token_hash == hash_session_token(session_token),
+                AuthSession.expires_at > func.now(),
+            )
         )
-    )
     if user is None:
         raise _invalid_session()
     return user

@@ -221,6 +221,7 @@ async def test_background_cleanup_does_not_release_new_owner(
         conversation_id,
         ConversationMessageCreate(message="question"),
         User(id=owner_id, username="owner", password_hash="test"),
+        None,
         test_database,
     )
     _ = [event async for event in response.body_iterator]
@@ -267,6 +268,21 @@ async def test_send_message_requires_authentication_before_sse() -> None:
 
     assert response.status_code == 401
     assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.asyncio
+async def test_send_message_rejects_non_json_content_type(
+    client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+
+    response = await client.post(
+        f"/api/conversations/{UUID(int=496)}/messages",
+        content='{"message":"plain"}',
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 415
 
 
 @pytest.mark.asyncio
