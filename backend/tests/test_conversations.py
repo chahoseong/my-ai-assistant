@@ -10,13 +10,23 @@ from sqlalchemy.exc import SQLAlchemyError
 import app.dependencies
 import app.main
 from app.models import Conversation
-from app.dependencies import get_session
+from app.dependencies import get_current_user_for_unsafe_request, get_session
+from app.models import User
 
 
 @pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
+async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    user = await user_factory()
+    _, token = await session_factory(user=user)
+    return user, token
+
+
+@pytest.fixture
+async def client(authenticated_user) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app.main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set("assistant_session", authenticated_user[1])
         yield client
 
 
@@ -41,6 +51,17 @@ async def test_create_conversation_persists_and_returns_created_resource(
 
     assert conversation is not None
     assert conversation.title == "Learning conversation"
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_requires_authentication() -> None:
+    transport = ASGITransport(app=app.main.app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as anonymous_client:
+        response = await anonymous_client.post("/api/conversations", json={})
+
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -121,10 +142,14 @@ async def test_create_conversation_returns_safe_error_when_commit_fails(
     client: AsyncClient,
 ) -> None:
     app.main.app.dependency_overrides[get_session] = failing_session
+    app.main.app.dependency_overrides[get_current_user_for_unsafe_request] = lambda: (
+        User(username="test_user", password_hash="$argon2id$test")
+    )
     try:
         response = await client.post("/api/conversations", json={"title": "will fail"})
     finally:
         app.main.app.dependency_overrides.pop(get_session, None)
+        app.main.app.dependency_overrides.pop(get_current_user_for_unsafe_request, None)
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to create conversation."}
