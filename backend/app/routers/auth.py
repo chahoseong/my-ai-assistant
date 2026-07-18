@@ -2,13 +2,19 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import AuthSettings
-from app.dependencies import AllowedOrigin, JsonRequest, get_auth_settings, get_session
+from app.dependencies import (
+    AllowedOrigin,
+    CurrentUser,
+    JsonRequest,
+    get_auth_settings,
+    get_session,
+)
 from app.models import AuthSession, User
 from app.schemas import LoginRequest, PublicUser, SignupRequest
 from app.security import (
@@ -115,6 +121,30 @@ async def login(
         httponly=True,
         samesite="lax",
     )
+    return response
+
+
+@router.get("/me", response_model=PublicUser)
+async def get_me(user: CurrentUser) -> User:
+    return user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    _: AllowedOrigin,
+    session: AsyncSession = Depends(get_session),
+    session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
+) -> Response:
+    if session_token is not None and len(session_token) <= 256:
+        await session.execute(
+            delete(AuthSession).where(
+                AuthSession.token_hash == hash_session_token(session_token)
+            )
+        )
+        await session.commit()
+
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
     return response
 
 
