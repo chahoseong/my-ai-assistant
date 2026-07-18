@@ -17,6 +17,10 @@ class SignupRequest(BaseModel):
         return normalize_username(value)
 
 
+class LoginRequest(SignupRequest):
+    pass
+
+
 class PublicUser(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
