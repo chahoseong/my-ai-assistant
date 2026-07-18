@@ -8,14 +8,16 @@ from app.agent import (
     create_agent,
     load_llama_settings,
 )
-from app.dependencies import dispose_database, get_database
+from app.dependencies import dispose_database, get_auth_settings, get_database
 from app.routers.conversations import router as conversations_router
 from app.routers.chat import router as chat_router
 from app.routers.messages import router as messages_router
+from app.routers.auth import router as auth_router
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    get_auth_settings()
     get_database()
     try:
         yield
@@ -24,6 +26,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(auth_router, prefix="/api/auth")
 app.include_router(conversations_router, prefix="/api/conversations")
 app.include_router(messages_router, prefix="/api/conversations")
 app.include_router(chat_router, prefix="/api/conversations")

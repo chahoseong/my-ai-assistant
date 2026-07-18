@@ -87,6 +87,54 @@ uv run pyright app tests
 Tests use the real PostgreSQL test database and truncate test tables before and
 after each test. They never use the development database.
 
+## Authentication configuration
+
+Authentication uses a server-stored session cookie. Set these variables before
+starting FastAPI:
+
+```powershell
+$env:APP_ENV = "local"
+$env:SESSION_COOKIE_SECURE = "false"
+$env:AUTH_ALLOWED_ORIGINS = "http://127.0.0.1:8000,http://localhost:8000"
+```
+
+`SESSION_COOKIE_SECURE` accepts only `true` or `false`. It must be `true` when
+`APP_ENV` is not `local`; FastAPI refuses to start otherwise. The local HTTP
+setting above is only for localhost development.
+
+Sessions are fixed at 30 days. The cookie is httpOnly, host-only, `Path=/`, and
+`SameSite=Lax`; the database stores only the SHA-256 hash of its random token.
+Unsafe requests with an `Origin` header must exactly match
+`AUTH_ALLOWED_ORIGINS`; `Origin: null` is rejected. JSON body endpoints also
+require `Content-Type: application/json`. Header-less curl requests remain
+available for local verification.
+
+## Destructive authentication migration
+
+Revision `20260718_0003` deletes all existing conversations and messages before
+making `conversations.user_id` mandatory. It is intended only for this
+pre-production project state.
+
+1. Stop FastAPI and confirm `DATABASE_URL` points to the intended development
+   database, never a production database.
+2. Run `uv run alembic upgrade head`.
+3. Do not rely on downgrade to recover deleted conversations: downgrade restores
+   only the nullable schema, not deleted data.
+
+## Cookie authentication walkthrough
+
+Use a cookie jar for a local API smoke test:
+
+```powershell
+curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8000/api/auth/signup
+curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8000/api/auth/login
+curl.exe -i -b cookies.txt http://127.0.0.1:8000/api/auth/me
+curl.exe -i -b cookies.txt -H "Content-Type: application/json" -d '{"title":"First conversation"}' http://127.0.0.1:8000/api/conversations
+curl.exe -i -b cookies.txt -X POST http://127.0.0.1:8000/api/auth/logout
+```
+
+For browser-originated unsafe requests, include an allowed `Origin` header.
+
 ## Run the services
 
 ### llama-server

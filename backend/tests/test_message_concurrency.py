@@ -86,24 +86,37 @@ class CancelThenSuccessAgent:
         return BlockingStreamResult(self.second_agent)
 
 
-async def create_conversation(test_database, conversation_id: UUID) -> None:
+async def create_conversation(
+    test_database, conversation_id: UUID, user_id: UUID
+) -> None:
     async with test_database.session_factory() as session:
-        session.add(Conversation(id=conversation_id))
+        session.add(Conversation(id=conversation_id, user_id=user_id))
         await session.commit()
+
+
+async def create_authenticated_client(user_factory, session_factory, transport):
+    user = await user_factory()
+    _, token = await session_factory(user=user)
+    client = AsyncClient(transport=transport, base_url="http://test")
+    client.cookies.set("assistant_session", token)
+    return user, client
 
 
 @pytest.mark.asyncio
 async def test_same_conversation_is_rejected_without_waiting(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transport = ASGITransport(app=app.main.app)
     conversation_id = UUID(int=600)
-    await create_conversation(test_database, conversation_id)
     agent = BlockingAgent()
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+    async with client:
         first = asyncio.create_task(
             client.post(
                 f"/api/conversations/{conversation_id}/messages",
@@ -136,18 +149,21 @@ async def test_same_conversation_is_rejected_without_waiting(
 
 @pytest.mark.asyncio
 async def test_different_conversations_can_stream_together(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transport = ASGITransport(app=app.main.app)
     first_id = UUID(int=601)
     second_id = UUID(int=602)
-    await create_conversation(test_database, first_id)
-    await create_conversation(test_database, second_id)
     agent = BlockingAgent(expected_started=2)
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, first_id, user.id)
+    await create_conversation(test_database, second_id, user.id)
+    async with client:
         first = asyncio.create_task(
             client.post(
                 f"/api/conversations/{first_id}/messages",
@@ -171,16 +187,19 @@ async def test_different_conversations_can_stream_together(
 
 @pytest.mark.asyncio
 async def test_cancelled_stream_releases_lock_for_next_request(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transport = ASGITransport(app=app.main.app)
     conversation_id = UUID(int=603)
-    await create_conversation(test_database, conversation_id)
     agent = CancelThenSuccessAgent()
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+    async with client:
         first = asyncio.create_task(
             client.post(
                 f"/api/conversations/{conversation_id}/messages",
@@ -224,10 +243,11 @@ async def test_cancelled_stream_releases_lock_for_next_request(
 
 @pytest.mark.asyncio
 async def test_disconnect_before_stream_iterator_starts_releases_lock(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     conversation_id = UUID(int=604)
-    await create_conversation(test_database, conversation_id)
+    owner = await user_factory()
+    await create_conversation(test_database, conversation_id, owner.id)
 
     agent_called = False
 
@@ -240,6 +260,8 @@ async def test_disconnect_before_stream_iterator_starts_releases_lock(
     response = await chat_router.send_message(
         conversation_id,
         ConversationMessageCreate(message="disconnect before stream"),
+        owner,
+        None,
         test_database,
     )
 

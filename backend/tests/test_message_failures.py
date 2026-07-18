@@ -67,23 +67,36 @@ async def collect_messages(test_database, conversation_id: UUID) -> list[Message
         )
 
 
-async def create_conversation(test_database, conversation_id: UUID) -> None:
+async def create_conversation(
+    test_database, conversation_id: UUID, user_id: UUID
+) -> None:
     async with test_database.session_factory() as session:
-        session.add(Conversation(id=conversation_id))
+        session.add(Conversation(id=conversation_id, user_id=user_id))
         await session.commit()
+
+
+async def create_authenticated_client(user_factory, session_factory, transport):
+    user = await user_factory()
+    _, token = await session_factory(user=user)
+    client = AsyncClient(transport=transport, base_url="http://test")
+    client.cookies.set("assistant_session", token)
+    return user, client
 
 
 @pytest.mark.asyncio
 async def test_llm_failure_keeps_user_only_and_sends_error_event(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=500)
-    await create_conversation(test_database, conversation_id)
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", FailingAgent())
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+    async with client:
         async with client.stream(
             "POST",
             f"/api/conversations/{conversation_id}/messages",
@@ -103,15 +116,18 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
 
 @pytest.mark.asyncio
 async def test_failed_stream_releases_lock_for_retry(
-    test_database, monkeypatch: pytest.MonkeyPatch
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=501)
-    await create_conversation(test_database, conversation_id)
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", FailingAgent())
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+    async with client:
         async with client.stream(
             "POST",
             f"/api/conversations/{conversation_id}/messages",

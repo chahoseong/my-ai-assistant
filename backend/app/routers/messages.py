@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_session
+from app.dependencies import CurrentUser, get_session
 from app.models import Conversation, Message
 from app.schemas import MessageResponse
 
@@ -21,10 +21,16 @@ logger = logging.getLogger(__name__)
 )
 async def list_messages(
     conversation_id: UUID,
+    current_user: CurrentUser,
     session: AsyncSession = Depends(get_session),
 ) -> list[Message]:
     try:
-        conversation = await session.get(Conversation, conversation_id)
+        conversation = await session.scalar(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == current_user.id,
+            )
+        )
         if conversation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

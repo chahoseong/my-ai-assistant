@@ -1,6 +1,11 @@
 import importlib
 
 
+def _foreign_key_ondelete(table, column_name: str) -> str | None:
+    foreign_key = next(iter(table.c[column_name].foreign_keys))
+    return foreign_key.ondelete
+
+
 def test_message_metadata_declares_conversation_history_contract() -> None:
     models = importlib.import_module("app.models")
 
@@ -11,10 +16,26 @@ def test_message_metadata_declares_conversation_history_contract() -> None:
     assert messages.name == "messages"
     assert conversations.c.id.primary_key
     assert messages.c.id.primary_key
-    assert messages.c.conversation_id.foreign_keys.pop().ondelete == "CASCADE"
+    assert _foreign_key_ondelete(messages, "conversation_id") == "CASCADE"
     assert {"ix_messages_conversation_created_at_id"} == {
         index.name for index in messages.indexes
     }
     assert {"ck_messages_role"} == {
         constraint.name for constraint in messages.constraints if constraint.name
     }
+
+
+def test_authentication_metadata_declares_ownership_and_session_contract() -> None:
+    models = importlib.import_module("app.models")
+
+    users = models.User.__table__
+    sessions = models.AuthSession.__table__
+    conversations = models.Conversation.__table__
+
+    assert users.name == "users"
+    assert sessions.name == "sessions"
+    assert users.c.username.unique
+    assert sessions.c.token_hash.unique
+    assert _foreign_key_ondelete(sessions, "user_id") == "CASCADE"
+    assert _foreign_key_ondelete(conversations, "user_id") == "RESTRICT"
+    assert conversations.c.user_id.nullable is False

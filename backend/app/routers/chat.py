@@ -16,7 +16,7 @@ from app.concurrency import (
     try_acquire_conversation,
 )
 from app.db import Database
-from app.dependencies import get_database
+from app.dependencies import CurrentUserForUnsafeRequest, JsonRequest, get_database
 from app.models import Conversation, Message
 from app.schemas import ConversationMessageCreate
 
@@ -78,11 +78,18 @@ async def stream_persisted_message(
 async def send_message(
     conversation_id: UUID,
     payload: ConversationMessageCreate,
+    current_user: CurrentUserForUnsafeRequest,
+    _: JsonRequest,
     database: Database = Depends(get_database),
 ) -> EventSourceResponse:
     try:
         async with database.session_factory() as session:
-            conversation = await session.get(Conversation, conversation_id)
+            conversation = await session.scalar(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.user_id == current_user.id,
+                )
+            )
             if conversation is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

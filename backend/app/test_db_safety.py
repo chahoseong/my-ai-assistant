@@ -77,4 +77,6 @@ async def validate_test_database_identity(
 
 async def truncate_test_database(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE TABLE messages, conversations CASCADE"))
+        await connection.execute(
+            text("TRUNCATE TABLE messages, conversations, sessions, users CASCADE")
+        )
