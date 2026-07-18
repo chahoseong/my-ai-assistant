@@ -18,11 +18,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    apply_owner_requirement(op)
+
+
+def apply_owner_requirement(operations) -> None:
     # This pre-production migration is intentionally destructive. These rows
     # cannot be attributed safely, and downgrade cannot restore them.
-    op.execute("DELETE FROM messages")
-    op.execute("DELETE FROM conversations")
-    op.alter_column("conversations", "user_id", nullable=False)
+    operations.execute("DELETE FROM messages")
+    operations.execute("DELETE FROM conversations")
+    operations.alter_column("conversations", "user_id", nullable=False)
 
 
 def downgrade() -> None:
