@@ -38,4 +38,4 @@ def test_authentication_metadata_declares_ownership_and_session_contract() -> No
     assert sessions.c.token_hash.unique
     assert _foreign_key_ondelete(sessions, "user_id") == "CASCADE"
     assert _foreign_key_ondelete(conversations, "user_id") == "RESTRICT"
-    assert conversations.c.user_id.nullable is True
+    assert conversations.c.user_id.nullable is False

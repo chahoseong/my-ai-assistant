@@ -54,6 +54,17 @@ def test_application_startup_requires_database_url(
             pass
 
 
+def test_application_startup_rejects_insecure_non_local_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "false")
+
+    with pytest.raises(ValueError, match="SESSION_COOKIE_SECURE"):
+        with TestClient(app.main.app):
+            pass
+
+
 def test_configure_logger_adds_one_console_handler_without_propagation() -> None:
     app.main.configure_logger()
     app.main.configure_logger()
