@@ -19,6 +19,7 @@ npm run dev
 브라우저에서 `http://127.0.0.1:5173`을 엽니다. Vite 개발 서버는 `/api` 요청을
 백엔드로 프록시합니다. 세션 인증은 서버가 설정한 httpOnly 쿠키를 사용하며,
 비밀번호와 세션 토큰은 localStorage·sessionStorage에 저장하지 않습니다.
+`http://localhost:5173`은 백엔드 Origin 허용 목록에 없으므로 사용하지 않습니다.
 
 프로덕션 번들과 타입 검사는 다음 명령으로 수행합니다.
 

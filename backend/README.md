@@ -174,6 +174,9 @@ Open `http://127.0.0.1:5173`. Vite proxies `/api` to FastAPI, so the browser
 uses the server-owned httpOnly session cookie without storing credentials in
 JavaScript or browser storage.
 
+Use this exact `127.0.0.1` address, not `http://localhost:5173`. The local
+Origin allowlist intentionally accepts only `http://127.0.0.1:5173`.
+
 After startup, verify that the current application is loaded before sending
 requests:
 

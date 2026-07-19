@@ -18,6 +18,7 @@ export async function streamMessage(
   message: string,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
+  onStarted?: () => void,
 ) {
   const response = await fetch(`/api/conversations/${conversationId}/messages`, {
     credentials: 'same-origin',
@@ -26,6 +27,7 @@ export async function streamMessage(
   })
   if (!response.ok) throw await errorFrom(response)
   if (response.body === null) throw new Error('스트리밍 응답 본문이 없습니다.')
+  onStarted?.()
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
