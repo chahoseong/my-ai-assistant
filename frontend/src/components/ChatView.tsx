@@ -46,6 +46,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     if (conversationStatus === 'created') {
       setMessages(session ? previewForCreatedConversation(session) : [])
       setError(session?.error ?? null)
+      if (session?.completed && session.error !== null) streamSessionsRef.current.delete(conversationId)
       setLoading(false)
       return
     }
@@ -57,6 +58,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       const latestSession = streamSessionsRef.current.get(conversationId)
       setMessages(latestSession ? mergeStreamSession(items, latestSession) : items)
       setError(latestSession?.error ?? null)
+      if (latestSession?.completed && latestSession.error !== null) streamSessionsRef.current.delete(conversationId)
     }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       if (reason instanceof ApiError && reason.status === 401) onSessionExpired()
@@ -129,8 +131,8 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       const completedRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
       messageRevisionRef.current.set(activeConversationId, completedRevision + 1)
       const saved = await listMessages(activeConversationId)
-      if (!streamFailed) streamSessionsRef.current.delete(activeConversationId)
       if (isVisible()) setMessages(saved)
+      if (!streamFailed || isVisible()) streamSessionsRef.current.delete(activeConversationId)
     } catch (reason) {
       cancelled = reason instanceof DOMException && reason.name === 'AbortError'
       if (cancelled) {
@@ -151,6 +153,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
         session.assistantMessage.content = ''
         const failedRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
         messageRevisionRef.current.set(activeConversationId, failedRevision + 1)
+        if (isVisible()) streamSessionsRef.current.delete(activeConversationId)
       } else if (activeConversationId !== null) {
         streamSessionsRef.current.delete(activeConversationId)
       }
