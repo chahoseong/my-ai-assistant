@@ -77,7 +77,6 @@ function App() {
     try {
       const conversation = await createConversation(title)
       setConversations((current) => [conversation, ...current])
-      setSelectedConversationId(conversation.id)
       return conversation
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -110,6 +109,7 @@ function App() {
       <ChatView
         conversationId={selectedConversationId}
         onCreateConversation={handleCreateConversation}
+        onConversationReady={setSelectedConversationId}
         onSessionExpired={becomeAnonymous}
       />
     </main>
