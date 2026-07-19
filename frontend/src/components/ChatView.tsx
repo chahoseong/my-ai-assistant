@@ -54,7 +54,8 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     const requestRevision = messageRevisionRef.current.get(conversationId) ?? 0
     const controller = new AbortController(); setLoading(true); setError(session?.error ?? null)
     void listMessages(conversationId).then((items) => {
-      if (controller.signal.aborted || messageRevisionRef.current.get(conversationId) !== requestRevision) return
+      const currentRevision = messageRevisionRef.current.get(conversationId) ?? 0
+      if (controller.signal.aborted || currentRevision !== requestRevision) return
       const latestSession = streamSessionsRef.current.get(conversationId)
       setMessages(latestSession ? mergeStreamSession(items, latestSession) : items)
       setError(latestSession?.error ?? null)
