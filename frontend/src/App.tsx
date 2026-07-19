@@ -18,7 +18,7 @@ type SessionState =
   | { kind: 'authenticated'; user: PublicUser }
 
 function withHiddenStatus(conversation: ConversationView): ConversationView {
-  return { ...conversation, status: 'hidden', isStreaming: false }
+  return { ...conversation, status: 'hidden' }
 }
 
 function App() {
