@@ -9,7 +9,7 @@ import {
   listConversations,
   logout,
 } from './lib/api'
-import type { Conversation, PublicUser } from './lib/types'
+import type { ConversationView, PublicUser } from './lib/types'
 import './App.css'
 
 type SessionState =
@@ -17,23 +17,36 @@ type SessionState =
   | { kind: 'anonymous' }
   | { kind: 'authenticated'; user: PublicUser }
 
+function withHiddenStatus(conversation: ConversationView): ConversationView {
+  return { ...conversation, status: 'hidden', isStreaming: false }
+}
+
 function App() {
   const [session, setSession] = useState<SessionState>({ kind: 'checking' })
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<ConversationView[]>([])
   const [listError, setListError] = useState<string | null>(null)
+  const activeConversation = conversations.find((conversation) => conversation.status !== 'hidden') ?? null
 
   const becomeAnonymous = useCallback(() => {
     setSession({ kind: 'anonymous' })
     setConversations([])
-    setSelectedConversationId(null)
   }, [])
 
   const loadConversations = useCallback(async () => {
     setListError(null)
     try {
       const items = await listConversations()
-      setConversations(items)
+      setConversations((current) => {
+        const active = current.find((conversation) => conversation.status !== 'hidden')
+        return items.map((item) => {
+          const previous = current.find((conversation) => conversation.id === item.id)
+          return {
+            ...item,
+            status: active?.id === item.id ? active.status : 'hidden',
+            isStreaming: previous?.isStreaming ?? false,
+          }
+        })
+      })
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         becomeAnonymous()
@@ -73,11 +86,12 @@ function App() {
     }
   }, [becomeAnonymous])
 
-  const handleCreateConversation = useCallback(async (title: string) => {
+  const handleCreateConversation = useCallback(async (title: string): Promise<ConversationView> => {
     try {
       const conversation = await createConversation(title)
-      setConversations((current) => [conversation, ...current])
-      return conversation
+      const view: ConversationView = { ...conversation, status: 'created', isStreaming: false }
+      setConversations((current) => [view, ...current.map(withHiddenStatus)])
+      return view
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         becomeAnonymous()
@@ -85,6 +99,23 @@ function App() {
       throw error
     }
   }, [becomeAnonymous])
+
+  const handleSelectConversation = useCallback((id: string) => {
+    setConversations((current) => current.map((conversation) => ({
+      ...conversation,
+      status: conversation.id === id ? 'displayed' : 'hidden',
+    })))
+  }, [])
+
+  const handleNewConversation = useCallback(() => {
+    setConversations((current) => current.map(withHiddenStatus))
+  }, [])
+
+  const handleStreamingChange = useCallback((id: string, isStreaming: boolean) => {
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === id ? { ...conversation, isStreaming } : conversation
+    )))
+  }, [])
 
   if (session.kind === 'checking') {
     return <main className="session-status">세션을 확인하고 있습니다…</main>
@@ -99,17 +130,17 @@ function App() {
       <ConversationSidebar
         conversations={conversations}
         error={listError}
-        selectedConversationId={selectedConversationId}
+        selectedConversationId={activeConversation?.id ?? null}
         username={session.user.username}
-        onNewConversation={() => setSelectedConversationId(null)}
+        onNewConversation={handleNewConversation}
         onRefresh={() => void loadConversations()}
-        onSelect={setSelectedConversationId}
+        onSelect={handleSelectConversation}
         onLogout={() => void handleLogout()}
       />
       <ChatView
-        conversationId={selectedConversationId}
+        conversation={activeConversation}
         onCreateConversation={handleCreateConversation}
-        onConversationReady={setSelectedConversationId}
+        onStreamingChange={handleStreamingChange}
         onSessionExpired={becomeAnonymous}
       />
     </main>

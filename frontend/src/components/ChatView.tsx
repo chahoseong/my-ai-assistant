@@ -1,38 +1,36 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError, listMessages } from '../lib/api'
 import { streamMessage } from '../lib/sse'
-import type { Conversation, Message } from '../lib/types'
+import type { ConversationView, Message } from '../lib/types'
 import './ChatView.css'
 
 type DisplayMessage = Message | { id: string; role: 'assistant'; content: string; created_at: string }
 const titleFrom = (message: string) => Array.from(message).slice(0, 30).join('')
 
-export function ChatView({ conversationId, onCreateConversation, onConversationReady, onSessionExpired }: { conversationId: string | null; onCreateConversation: (title: string) => Promise<Conversation>; onConversationReady: (id: string) => void; onSessionExpired: () => void }) {
+export function ChatView({ conversation, onCreateConversation, onStreamingChange, onSessionExpired }: { conversation: ConversationView | null; onCreateConversation: (title: string) => Promise<ConversationView>; onStreamingChange: (id: string, isStreaming: boolean) => void; onSessionExpired: () => void }) {
   const [messages, setMessages] = useState<DisplayMessage[]>([])
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(false)
-  const [streamingConversationIds, setStreamingConversationIds] = useState<Set<string>>(() => new Set())
-  const [newConversationStreaming, setNewConversationStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const selectedConversationIdRef = useRef<string | null>(conversationId)
+  const selectedConversationIdRef = useRef<string | null>(conversation?.id ?? null)
   const streamControllersRef = useRef(new Map<string, AbortController>())
-  const newConversationStreamIdRef = useRef<string | null>(null)
-  selectedConversationIdRef.current = conversationId
-
-  const isStreaming = conversationId === null ? newConversationStreaming : streamingConversationIds.has(conversationId)
-
-  function setConversationStreaming(id: string, streaming: boolean) {
-    setStreamingConversationIds((current) => {
-      const next = new Set(current)
-      if (streaming) next.add(id)
-      else next.delete(id)
-      return next
-    })
+  const viewKey = conversation?.id ?? 'new'
+  const previousViewKeyRef = useRef(viewKey)
+  const viewGenerationRef = useRef(0)
+  if (previousViewKeyRef.current !== viewKey) {
+    previousViewKeyRef.current = viewKey
+    viewGenerationRef.current += 1
   }
+  selectedConversationIdRef.current = conversation?.id ?? null
+
+  const conversationId = conversation?.id ?? null
+  const conversationStatus = conversation?.status ?? null
+  const isStreaming = conversation?.isStreaming ?? false
 
   useEffect(() => {
     if (conversationId === null) { setMessages([]); setError(null); setLoading(false); return }
-    setNewConversationStreaming(false)
+    if (conversationStatus === 'created') { setLoading(false); return }
+
     const controller = new AbortController(); setLoading(true); setError(null)
     void listMessages(conversationId).then((items) => { if (!controller.signal.aborted) setMessages(items) }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
@@ -40,7 +38,7 @@ export function ChatView({ conversationId, onCreateConversation, onConversationR
       else setError(reason instanceof Error ? reason.message : '메시지를 불러오지 못했습니다.')
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [conversationId, onSessionExpired])
+  }, [conversationId, conversationStatus, onSessionExpired])
 
   useEffect(() => () => {
     for (const controller of streamControllersRef.current.values()) controller.abort()
@@ -52,13 +50,18 @@ export function ChatView({ conversationId, onCreateConversation, onConversationR
     if (!prompt || isStreaming) return
 
     setError(null)
-    let activeConversationId = conversationId
+    let activeConversationId = conversation?.id ?? null
     let createdConversationId: string | null = null
     let streamStarted = false
     let cancelled = false
+    const streamViewGeneration = viewGenerationRef.current
     const pendingSuffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const pendingUserId = `pending-user-${pendingSuffix}`
     const pendingAssistantId = `pending-assistant-${pendingSuffix}`
+    const isVisible = () => viewGenerationRef.current === streamViewGeneration && (
+      selectedConversationIdRef.current === activeConversationId
+      || (createdConversationId === activeConversationId && selectedConversationIdRef.current === null)
+    )
 
     try {
       if (activeConversationId === null) {
@@ -66,29 +69,25 @@ export function ChatView({ conversationId, onCreateConversation, onConversationR
         activeConversationId = createdConversationId
       }
 
-      if (selectedConversationIdRef.current === activeConversationId) {
+      if (isVisible()) {
         const temporaryUser: Message = { id: pendingUserId, role: 'user', content: prompt, created_at: new Date().toISOString() }
         setMessages((current) => [...current, temporaryUser, { id: pendingAssistantId, role: 'assistant', content: '', created_at: new Date().toISOString() }])
       }
 
       const controller = new AbortController()
       streamControllersRef.current.set(activeConversationId, controller)
-      setConversationStreaming(activeConversationId, true)
-      if (conversationId === null) {
-        newConversationStreamIdRef.current = activeConversationId
-        setNewConversationStreaming(true)
-      }
+      onStreamingChange(activeConversationId, true)
 
       let streamFailed = false
       await streamMessage(activeConversationId, prompt, (streamEvent) => {
-        if (selectedConversationIdRef.current !== activeConversationId) return
+        if (!isVisible()) return
         if (streamEvent.event === 'data') setMessages((current) => current.map((item) => item.id === pendingAssistantId ? { ...item, content: item.content + streamEvent.data } : item))
         if (streamEvent.event === 'error') { streamFailed = true; setError(streamEvent.data) }
       }, controller.signal, () => { streamStarted = true })
 
-      if (!streamFailed && selectedConversationIdRef.current === activeConversationId) setDraft('')
+      if (!streamFailed && isVisible()) setDraft('')
       const saved = await listMessages(activeConversationId)
-      if (selectedConversationIdRef.current === activeConversationId) setMessages(saved)
+      if (isVisible()) setMessages(saved)
     } catch (reason) {
       cancelled = reason instanceof DOMException && reason.name === 'AbortError'
       if (cancelled) return
@@ -96,22 +95,17 @@ export function ChatView({ conversationId, onCreateConversation, onConversationR
         cancelled = true
         onSessionExpired()
       }
-      else if (selectedConversationIdRef.current === activeConversationId) setError(reason instanceof Error ? reason.message : '메시지를 전송하지 못했습니다.')
+      else if (isVisible()) setError(reason instanceof Error ? reason.message : '메시지를 전송하지 못했습니다.')
 
-      if (selectedConversationIdRef.current === activeConversationId) {
+      if (isVisible()) {
         const pendingIds = streamStarted ? [pendingAssistantId] : [pendingUserId, pendingAssistantId]
         setMessages((current) => current.filter((item) => !pendingIds.includes(item.id)))
       }
     } finally {
       if (activeConversationId !== null) {
         streamControllersRef.current.delete(activeConversationId)
-        setConversationStreaming(activeConversationId, false)
+        onStreamingChange(activeConversationId, false)
       }
-      if (newConversationStreamIdRef.current === activeConversationId) {
-        newConversationStreamIdRef.current = null
-        setNewConversationStreaming(false)
-      }
-      if (createdConversationId !== null && !cancelled && selectedConversationIdRef.current === null) onConversationReady(createdConversationId)
     }
   }
 
@@ -121,7 +115,7 @@ export function ChatView({ conversationId, onCreateConversation, onConversationR
     event.currentTarget.form?.requestSubmit()
   }
 
-  return <section className="chat" aria-label="대화"><header className="chat-header"><h1>{conversationId === null ? '새 대화' : '대화'}</h1><p>{conversationId === null ? '첫 메시지를 보내 대화를 시작하세요.' : '대화 기록과 응답이 여기에 표시됩니다.'}</p></header>
+  return <section className="chat" aria-label="대화"><header className="chat-header"><h1>{conversation === null ? '새 대화' : '대화'}</h1><p>{conversation === null ? '첫 메시지를 보내 대화를 시작하세요.' : '대화 기록과 응답이 여기에 표시됩니다.'}</p></header>
     <div className="message-list" aria-live="polite">
       {loading && <p className="chat-status">메시지를 불러오는 중…</p>}
       {!loading && messages.length === 0 && <p className="chat-status">무엇을 도와드릴까요?</p>}
