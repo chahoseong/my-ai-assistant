@@ -1,96 +1,92 @@
-# Frontend Design: Minimal Assistant UI
+# 프론트엔드 설계: 최소 어시스턴트 UI
 
-## Purpose and Scope
+## 목적과 범위
 
-Provide a practical browser UI for the existing assistant APIs: signup, login,
-conversation selection, message history, new-conversation creation, streamed
-assistant responses, and logout. The UI is a support tool for backend learning,
-not a separate frontend architecture exercise.
+기존 어시스턴트 API를 브라우저에서 사용할 수 있는 실용적인 UI를 제공한다.
+범위에는 회원가입, 로그인, 대화 선택, 메시지 히스토리, 새 대화 생성, 스트리밍
+응답, 로그아웃이 포함된다. 이 UI는 백엔드 학습을 위한 지원 도구이며, 별도의
+프론트엔드 아키텍처 학습 과제가 아니다.
 
-The design deliberately excludes tool-call UI, pagination, editing or deleting
-conversations, dark mode, mobile-specific optimization, frontend automated
-tests, and deployment.
+도구 호출 UI, 페이지네이션, 대화 수정·삭제, 다크 모드, 모바일 전용 최적화,
+프론트엔드 자동 테스트, 배포는 이번 범위에서 제외한다.
 
-## Architecture
+## 구조
 
-The `frontend/` project uses React 19.2, Vite 8.1, and TypeScript 6.x. It has
-no router, global state store, or SSE library.
+`frontend/` 프로젝트는 React 19.2, Vite 8.1, TypeScript 6.x를 사용한다.
+라우터, 전역 상태 관리 라이브러리, SSE 라이브러리는 추가하지 않는다.
 
-`App` owns the small application state machine:
+`App`은 작은 애플리케이션 상태 머신을 소유한다.
 
-- `checking-session`: call `GET /api/auth/me` when the app starts.
-- `anonymous`: render the authentication view after a 401.
-- `authenticated`: render the conversation sidebar and chat view.
+- `checking-session`: 앱 시작 시 `GET /api/auth/me`를 호출한다.
+- `anonymous`: 401을 받으면 인증 화면을 렌더링한다.
+- `authenticated`: 대화 사이드바와 채팅 화면을 렌더링한다.
 
-Presentation responsibilities are split into focused components:
+표현 책임은 다음 컴포넌트와 모듈로 나눈다.
 
-- `AuthView`: signup/login tabs, submitted credentials, and server messages.
-- `ConversationSidebar`: conversation list, selection, and the new-conversation
-  action.
-- `ChatView`: persisted history, message composer, stream progress, and errors.
-- `lib/api`: cookie-aware JSON API requests and a consistent 401 signal.
-- `lib/sse`: POST streaming response parsing with chunk-safe buffering.
+- `AuthView`: 회원가입·로그인 탭, 자격 증명 제출, 서버 메시지
+- `ConversationSidebar`: 대화 목록, 선택, 새 대화 동작
+- `ChatView`: 저장된 히스토리, 메시지 작성, 스트림 진행 상태, 오류
+- `lib/api`: 쿠키를 포함하는 JSON API 요청과 일관된 401 신호
+- `lib/sse`: 청크 경계에 안전한 POST 스트리밍 응답 파싱
 
-This composition keeps authentication, list selection, and streaming state out
-of one monolithic component while avoiding extra client libraries.
+이 구성은 인증, 목록 선택, 스트리밍 상태가 하나의 거대한 컴포넌트에 섞이지
+않게 하면서도 추가 클라이언트 라이브러리를 피한다.
 
-## Browser and Security Contract
+## 브라우저와 보안 계약
 
-Vite runs at `http://127.0.0.1:5173` and proxies `/api` to
-`http://127.0.0.1:8000`. Requests use `credentials: "same-origin"`; the browser
-therefore treats the API as the same origin during development.
+Vite는 `http://127.0.0.1:5173`에서 실행하며 `/api`를
+`http://127.0.0.1:8000`으로 프록시한다. 요청은
+`credentials: "same-origin"`을 사용하므로, 개발 중 브라우저는 API를 같은
+Origin으로 취급한다.
 
-The frontend never stores a password or session token in JavaScript state,
-localStorage, or sessionStorage. The server-owned httpOnly cookie is the only
-session credential. A 401 from a protected API clears in-memory authenticated
-state and returns the UI to the login view.
+프론트엔드는 비밀번호나 세션 토큰을 JavaScript 상태, localStorage,
+sessionStorage에 저장하지 않는다. 서버가 소유한 httpOnly 쿠키만 세션 자격
+증명으로 사용한다. 보호 API의 401 응답은 메모리의 인증 상태를 지우고 로그인
+화면으로 돌린다.
 
-Unsafe requests continue to be protected by the existing backend Origin policy.
-The local backend runbook will allow exactly `http://127.0.0.1:5173`; this is
-not a CORS relaxation. The UI renders all message content as plain React text,
-not HTML.
+상태 변경 요청은 기존 백엔드 Origin 정책의 보호를 계속 받는다. 로컬 백엔드
+실행 문서는 정확히 `http://127.0.0.1:5173`만 허용하도록 갱신한다. 이는 CORS
+완화가 아니다. UI는 모든 메시지 내용을 HTML이 아닌 일반 React 텍스트로
+렌더링한다.
 
-## Data Flow
+## 데이터 흐름
 
-1. Start: `/api/auth/me` selects the anonymous or authenticated app state.
-2. Authentication: signup creates an account; a successful signup returns to
-   the login tab. Login sets the server session cookie, after which the app
-   reloads the current user and conversations.
-3. Listing: `GET /api/conversations` supplies the latest-first sidebar. A null
-   title is displayed as its creation time.
-4. Reading: selecting a conversation calls
-   `GET /api/conversations/{id}/messages`; a cancelled or stale response cannot
-   replace the newest selection.
-5. Existing conversation: a POST stream appends data deltas to a temporary
-   assistant message. `done` completes it; `error` shows an error; a 409 leaves
-   the existing stream and unsent draft intact.
-6. New conversation: clicking “New conversation” only changes UI state. The
-   first non-blank message creates the conversation with the first 30 Unicode
-   code points as its title, then streams that same message.
+1. 시작: `/api/auth/me`가 익명 또는 인증됨 상태를 결정한다.
+2. 인증: 회원가입 성공 후 로그인 탭으로 돌아간다. 로그인으로 서버 세션 쿠키가
+   설정되면 현재 사용자와 대화 목록을 다시 불러온다.
+3. 목록: `GET /api/conversations`가 최신순 사이드바를 제공한다. 제목이 null이면
+   생성 시각을 표시한다.
+4. 읽기: 대화를 선택하면 `GET /api/conversations/{id}/messages`를 호출한다.
+   취소되었거나 오래된 응답은 가장 최근 선택을 덮어쓰지 못한다.
+5. 기존 대화: POST 스트림의 `data` 델타를 임시 어시스턴트 메시지에 누적한다.
+   `done`은 완료 처리하고, `error`는 오류를 보이며, 409는 기존 스트림과 미전송
+   초안을 유지한다.
+6. 새 대화: “새 대화” 클릭은 UI 상태만 바꾼다. 첫 번째 공백이 아닌 메시지가
+   앞 30개 Unicode 코드 포인트를 제목으로 사용해 대화를 만든 뒤, 같은 메시지를
+   스트리밍 전송한다.
 
-## Error and Empty States
+## 오류와 빈 상태
 
-Every fetch path distinguishes loading, empty, error, and data states. Server
-`detail` messages are shown without replacing them with invented client text.
-For a stream, HTTP errors are handled before reading the body, and SSE `error`
-events are handled after the stream starts. A generated response failure keeps
-the server-persisted user message visible so the user can retry.
+모든 fetch 경로는 로딩, 빈 상태, 오류, 데이터를 구분한다. 서버의 `detail`
+메시지는 임의의 클라이언트 문구로 바꾸지 않고 표시한다. 스트림은 본문을 읽기
+전에 HTTP 오류를 처리하고, 시작 뒤에는 SSE `error` 이벤트를 처리한다. 응답
+생성이 실패해도 서버에 저장된 사용자 메시지는 남겨 재시도할 수 있게 한다.
 
-## Accessibility and Visual Direction
+## 접근성과 시각 방향
 
-The desktop-first layout has a semantic sidebar and main chat region. Native
-buttons and labelled form controls provide keyboard access. Status/error text
-uses appropriate live/status semantics and does not rely only on color.
+데스크톱 우선 레이아웃은 의미 있는 사이드바와 주 채팅 영역으로 구성한다.
+기본 HTML 버튼과 레이블이 있는 폼 컨트롤로 키보드 접근을 보장한다. 상태·오류
+텍스트에는 적절한 live/status 의미를 부여하고 색상만으로 상태를 전달하지 않는다.
 
-Styles use a restrained neutral palette, consistent spacing, readable message
-roles, visible focus indicators, and plain text rendering. The scope does not
-promise bespoke mobile layouts, but the layout must not create a blank or
-unusable page at ordinary desktop widths.
+스타일은 절제된 중립 색상, 일관된 간격, 읽기 쉬운 메시지 역할 구분, 명확한
+포커스 표시, 일반 텍스트 렌더링을 사용한다. 모바일 전용 레이아웃을 약속하지는
+않지만, 일반적인 데스크톱 너비에서 빈 화면이나 사용 불가능한 화면을 만들지
+않는다.
 
-## Verification
+## 검증
 
-- `npm run build` validates TypeScript and the production bundle.
-- Browser verification covers signup/login, refresh persistence, conversation
-  isolation, history loading, delta streaming, 409, SSE error, and logout.
-- Backend verification keeps `GET /api/conversations` covered by ownership,
-  ordering, authentication, error-safety, and OpenAPI-inventory tests.
+- `npm run build`로 TypeScript와 프로덕션 번들을 검증한다.
+- 브라우저에서 회원가입·로그인, 새로고침 뒤 세션 유지, 대화 격리, 히스토리
+  로드, 델타 스트리밍, 409, SSE error, 로그아웃을 검증한다.
+- 백엔드는 `GET /api/conversations`의 소유권, 정렬, 인증, 오류 안전성,
+  OpenAPI 인벤토리 테스트를 유지한다.
