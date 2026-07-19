@@ -14,13 +14,6 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
   const [error, setError] = useState<string | null>(null)
   const selectedConversationIdRef = useRef<string | null>(conversation?.id ?? null)
   const streamControllersRef = useRef(new Map<string, AbortController>())
-  const viewKey = conversation?.id ?? 'new'
-  const previousViewKeyRef = useRef(viewKey)
-  const viewGenerationRef = useRef(0)
-  if (previousViewKeyRef.current !== viewKey) {
-    previousViewKeyRef.current = viewKey
-    viewGenerationRef.current += 1
-  }
   selectedConversationIdRef.current = conversation?.id ?? null
 
   const conversationId = conversation?.id ?? null
@@ -54,14 +47,10 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     let createdConversationId: string | null = null
     let streamStarted = false
     let cancelled = false
-    const streamViewGeneration = viewGenerationRef.current
     const pendingSuffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const pendingUserId = `pending-user-${pendingSuffix}`
     const pendingAssistantId = `pending-assistant-${pendingSuffix}`
-    const isVisible = () => viewGenerationRef.current === streamViewGeneration && (
-      selectedConversationIdRef.current === activeConversationId
-      || (createdConversationId === activeConversationId && selectedConversationIdRef.current === null)
-    )
+    const isVisible = () => selectedConversationIdRef.current === activeConversationId
 
     try {
       if (activeConversationId === null) {
@@ -69,7 +58,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
         activeConversationId = createdConversationId
       }
 
-      if (isVisible()) {
+      if (isVisible() || createdConversationId === activeConversationId) {
         const temporaryUser: Message = { id: pendingUserId, role: 'user', content: prompt, created_at: new Date().toISOString() }
         setMessages((current) => [...current, temporaryUser, { id: pendingAssistantId, role: 'assistant', content: '', created_at: new Date().toISOString() }])
       }
