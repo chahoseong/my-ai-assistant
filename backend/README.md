@@ -127,11 +127,11 @@ pre-production project state.
 Use a cookie jar for a local API smoke test:
 
 ```powershell
-curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8000/api/auth/signup
-curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8000/api/auth/login
-curl.exe -i -b cookies.txt http://127.0.0.1:8000/api/auth/me
-curl.exe -i -b cookies.txt -H "Content-Type: application/json" -d '{"title":"First conversation"}' http://127.0.0.1:8000/api/conversations
-curl.exe -i -b cookies.txt -X POST http://127.0.0.1:8000/api/auth/logout
+curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8001/api/auth/signup
+curl.exe -i -c cookies.txt -H "Content-Type: application/json" -d '{"username":"alice","password":"correct horse battery staple"}' http://127.0.0.1:8001/api/auth/login
+curl.exe -i -b cookies.txt http://127.0.0.1:8001/api/auth/me
+curl.exe -i -b cookies.txt -H "Content-Type: application/json" -d '{"title":"First conversation"}' http://127.0.0.1:8001/api/conversations
+curl.exe -i -b cookies.txt -X POST http://127.0.0.1:8001/api/auth/logout
 ```
 
 For browser-originated unsafe requests, include an allowed `Origin` header.
@@ -158,7 +158,7 @@ messages in a `cp949` PowerShell console:
 ```powershell
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000
+uv run fastapi dev app/main.py --host 127.0.0.1 --port 8001
 ```
 
 ### React frontend
@@ -178,7 +178,7 @@ After startup, verify that the current application is loaded before sending
 requests:
 
 ```powershell
-$openapi = Invoke-RestMethod -Uri "http://127.0.0.1:8000/openapi.json"
+$openapi = Invoke-RestMethod -Uri "http://127.0.0.1:8001/openapi.json"
 $openapi.paths.PSObject.Properties.Name | Sort-Object
 ```
 
@@ -192,7 +192,7 @@ The output must include `/api/conversations` and
 ```powershell
 $conversation = Invoke-RestMethod `
   -Method Post `
-  -Uri "http://127.0.0.1:8000/api/conversations" `
+  -Uri "http://127.0.0.1:8001/api/conversations" `
   -ContentType "application/json" `
   -Body '{}'
 
@@ -208,7 +208,7 @@ when sending non-ASCII text.
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 '{"message":"첫 번째 질문"}' |
-  curl.exe -N -X POST "http://127.0.0.1:8000/api/conversations/$conversationId/messages" `
+  curl.exe -N -X POST "http://127.0.0.1:8001/api/conversations/$conversationId/messages" `
     -H 'Content-Type: application/json' `
     --data-binary '@-'
 ```
@@ -221,7 +221,7 @@ messages are loaded as model history:
 
 ```powershell
 '{"message":"이전 내용을 바탕으로 요약해줘"}' |
-  curl.exe -N -X POST "http://127.0.0.1:8000/api/conversations/$conversationId/messages" `
+  curl.exe -N -X POST "http://127.0.0.1:8001/api/conversations/$conversationId/messages" `
     -H 'Content-Type: application/json' `
     --data-binary '@-'
 ```
@@ -231,7 +231,7 @@ messages are loaded as model history:
 ```powershell
 Invoke-RestMethod `
   -Method Get `
-  -Uri "http://127.0.0.1:8000/api/conversations/$conversationId/messages"
+  -Uri "http://127.0.0.1:8001/api/conversations/$conversationId/messages"
 ```
 
 Messages are returned in `created_at ASC, id ASC` order. A missing conversation
