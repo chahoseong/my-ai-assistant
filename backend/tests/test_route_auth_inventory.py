@@ -12,6 +12,7 @@ def test_openapi_authentication_route_inventory_is_stable() -> None:
         ("post", "/api/auth/login"),
         ("post", "/api/auth/logout"),
         ("get", "/api/auth/me"),
+        ("get", "/api/conversations"),
         ("post", "/api/conversations"),
         ("get", "/api/conversations/{conversation_id}/messages"),
         ("post", "/api/conversations/{conversation_id}/messages"),
