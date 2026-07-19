@@ -95,12 +95,13 @@ starting FastAPI:
 ```powershell
 $env:APP_ENV = "local"
 $env:SESSION_COOKIE_SECURE = "false"
-$env:AUTH_ALLOWED_ORIGINS = "http://127.0.0.1:8000,http://localhost:8000"
+$env:AUTH_ALLOWED_ORIGINS = "http://127.0.0.1:5173"
 ```
 
 `SESSION_COOKIE_SECURE` accepts only `true` or `false`. It must be `true` when
 `APP_ENV` is not `local`; FastAPI refuses to start otherwise. The local HTTP
-setting above is only for localhost development.
+setting above allows only the Vite development origin and is only for local
+development.
 
 Sessions are fixed at 30 days. The cookie is httpOnly, host-only, `Path=/`, and
 `SameSite=Lax`; the database stores only the SHA-256 hash of its random token.
@@ -159,6 +160,19 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000
 ```
+
+### React frontend
+
+In another terminal, run the Vite app from `frontend/`:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Vite proxies `/api` to FastAPI, so the browser
+uses the server-owned httpOnly session cookie without storing credentials in
+JavaScript or browser storage.
 
 After startup, verify that the current application is loaded before sending
 requests:
