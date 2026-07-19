@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import ClassVar
 from uuid import UUID
 
@@ -10,7 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 import app.dependencies
 import app.main
 from app.models import Conversation
-from app.dependencies import get_current_user_for_unsafe_request, get_session
+from app.dependencies import (
+    get_current_user,
+    get_current_user_for_unsafe_request,
+    get_session,
+)
 from app.models import User
 
 
@@ -62,6 +67,114 @@ async def test_create_conversation_requires_authentication() -> None:
         response = await anonymous_client.post("/api/conversations", json={})
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_requires_authentication() -> None:
+    transport = ASGITransport(app=app.main.app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as anonymous_client:
+        response = await anonymous_client.get("/api/conversations")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_returns_only_current_users_conversations(
+    client: AsyncClient,
+    authenticated_user,
+    conversation_factory,
+    user_factory,
+) -> None:
+    current_user, _ = authenticated_user
+    current_users_conversation = await conversation_factory(
+        user=current_user, title="Current user's conversation"
+    )
+    other_user = await user_factory()
+    await conversation_factory(user=other_user, title="Other user's conversation")
+
+    response = await client.get("/api/conversations")
+
+    assert response.status_code == 200
+    assert [conversation["id"] for conversation in response.json()] == [
+        str(current_users_conversation.id)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_orders_by_created_at_then_id_descending(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+) -> None:
+    current_user, _ = authenticated_user
+    oldest = Conversation(
+        id=UUID("00000000-0000-0000-0000-000000000099"),
+        user_id=current_user.id,
+        title="Oldest",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    tied_lower_id = Conversation(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        user_id=current_user.id,
+        title="Tied lower ID",
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    tied_higher_id = Conversation(
+        id=UUID("00000000-0000-0000-0000-000000000002"),
+        user_id=current_user.id,
+        title="Tied higher ID",
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    newest = Conversation(
+        id=UUID("00000000-0000-0000-0000-000000000003"),
+        user_id=current_user.id,
+        title="Newest",
+        created_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+
+    async with test_database.session_factory() as session:
+        session.add_all([oldest, tied_lower_id, tied_higher_id, newest])
+        await session.commit()
+
+    response = await client.get("/api/conversations")
+
+    assert response.status_code == 200
+    assert [conversation["id"] for conversation in response.json()] == [
+        str(newest.id),
+        str(tied_higher_id.id),
+        str(tied_lower_id.id),
+        str(oldest.id),
+    ]
+
+
+class FailingListSession:
+    async def scalars(self, _statement: object) -> None:
+        raise SQLAlchemyError("database details must stay private")
+
+
+async def failing_list_session() -> AsyncIterator[FailingListSession]:
+    yield FailingListSession()
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_returns_safe_error_when_query_fails() -> None:
+    app.main.app.dependency_overrides[get_session] = failing_list_session
+    app.main.app.dependency_overrides[get_current_user] = lambda: User(
+        username="test_user", password_hash="$argon2id$test"
+    )
+    transport = ASGITransport(app=app.main.app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/conversations")
+    finally:
+        app.main.app.dependency_overrides.pop(get_session, None)
+        app.main.app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to list conversations."}
+    assert "database details" not in response.text
 
 
 @pytest.mark.asyncio
