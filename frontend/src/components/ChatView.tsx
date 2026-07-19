@@ -5,7 +5,25 @@ import type { ConversationView, Message } from '../lib/types'
 import './ChatView.css'
 
 type DisplayMessage = Message | { id: string; role: 'assistant'; content: string; created_at: string }
+type StreamSession = {
+  userMessage: Message
+  assistantMessage: Extract<DisplayMessage, { role: 'assistant' }>
+  error: string | null
+  completed: boolean
+}
+
 const titleFrom = (message: string) => Array.from(message).slice(0, 30).join('')
+
+function previewForCreatedConversation(session: StreamSession): DisplayMessage[] {
+  return session.completed ? [session.userMessage] : [session.userMessage, session.assistantMessage]
+}
+
+function mergeStreamSession(messages: Message[], session: StreamSession): DisplayMessage[] {
+  if (session.completed) return messages
+  const lastMessage = messages[messages.length - 1]
+  const hasCurrentUserMessage = lastMessage?.role === 'user' && lastMessage.content === session.userMessage.content
+  return [...messages, ...(hasCurrentUserMessage ? [] : [session.userMessage]), session.assistantMessage]
+}
 
 export function ChatView({ conversation, onCreateConversation, onStreamingChange, onSessionExpired }: { conversation: ConversationView | null; onCreateConversation: (title: string) => Promise<ConversationView>; onStreamingChange: (id: string, isStreaming: boolean) => void; onSessionExpired: () => void }) {
   const [messages, setMessages] = useState<DisplayMessage[]>([])
@@ -14,6 +32,8 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
   const [error, setError] = useState<string | null>(null)
   const selectedConversationIdRef = useRef<string | null>(conversation?.id ?? null)
   const streamControllersRef = useRef(new Map<string, AbortController>())
+  const streamSessionsRef = useRef(new Map<string, StreamSession>())
+  const messageRevisionRef = useRef(new Map<string, number>())
   selectedConversationIdRef.current = conversation?.id ?? null
 
   const conversationId = conversation?.id ?? null
@@ -22,10 +42,22 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
 
   useEffect(() => {
     if (conversationId === null) { setMessages([]); setError(null); setLoading(false); return }
-    if (conversationStatus === 'created') { setLoading(false); return }
+    const session = streamSessionsRef.current.get(conversationId)
+    if (conversationStatus === 'created') {
+      setMessages(session ? previewForCreatedConversation(session) : [])
+      setError(session?.error ?? null)
+      setLoading(false)
+      return
+    }
 
-    const controller = new AbortController(); setLoading(true); setError(null)
-    void listMessages(conversationId).then((items) => { if (!controller.signal.aborted) setMessages(items) }).catch((reason: unknown) => {
+    const requestRevision = messageRevisionRef.current.get(conversationId) ?? 0
+    const controller = new AbortController(); setLoading(true); setError(session?.error ?? null)
+    void listMessages(conversationId).then((items) => {
+      if (controller.signal.aborted || messageRevisionRef.current.get(conversationId) !== requestRevision) return
+      const latestSession = streamSessionsRef.current.get(conversationId)
+      setMessages(latestSession ? mergeStreamSession(items, latestSession) : items)
+      setError(latestSession?.error ?? null)
+    }).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       if (reason instanceof ApiError && reason.status === 401) onSessionExpired()
       else setError(reason instanceof Error ? reason.message : '메시지를 불러오지 못했습니다.')
@@ -58,10 +90,17 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
         activeConversationId = createdConversationId
       }
 
-      if (isVisible() || createdConversationId === activeConversationId) {
-        const temporaryUser: Message = { id: pendingUserId, role: 'user', content: prompt, created_at: new Date().toISOString() }
-        setMessages((current) => [...current, temporaryUser, { id: pendingAssistantId, role: 'assistant', content: '', created_at: new Date().toISOString() }])
+      const session: StreamSession = {
+        userMessage: { id: pendingUserId, role: 'user', content: prompt, created_at: new Date().toISOString() },
+        assistantMessage: { id: pendingAssistantId, role: 'assistant', content: '', created_at: new Date().toISOString() },
+        error: null,
+        completed: false,
       }
+      streamSessionsRef.current.set(activeConversationId, session)
+      const currentRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
+      messageRevisionRef.current.set(activeConversationId, currentRevision + 1)
+      if (createdConversationId === activeConversationId) setMessages(previewForCreatedConversation(session))
+      else if (isVisible()) setMessages((current) => mergeStreamSession(current, session))
 
       const controller = new AbortController()
       streamControllersRef.current.set(activeConversationId, controller)
@@ -69,22 +108,52 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
 
       let streamFailed = false
       await streamMessage(activeConversationId, prompt, (streamEvent) => {
-        if (!isVisible()) return
-        if (streamEvent.event === 'data') setMessages((current) => current.map((item) => item.id === pendingAssistantId ? { ...item, content: item.content + streamEvent.data } : item))
-        if (streamEvent.event === 'error') { streamFailed = true; setError(streamEvent.data) }
+        if (streamEvent.event === 'data') {
+          session.assistantMessage.content += streamEvent.data
+          if (isVisible()) setMessages((current) => current.some((item) => item.id === pendingAssistantId)
+            ? current.map((item) => item.id === pendingAssistantId ? { ...item, content: session.assistantMessage.content } : item)
+            : mergeStreamSession(current.filter((item) => item.id !== pendingUserId), session))
+        }
+        if (streamEvent.event === 'error') {
+          streamFailed = true
+          session.error = streamEvent.data
+          if (isVisible()) setError(streamEvent.data)
+        }
       }, controller.signal, () => { streamStarted = true })
 
+      if (streamFailed) {
+        session.completed = true
+        session.assistantMessage.content = ''
+      }
       if (!streamFailed && isVisible()) setDraft('')
+      const completedRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
+      messageRevisionRef.current.set(activeConversationId, completedRevision + 1)
       const saved = await listMessages(activeConversationId)
+      if (!streamFailed) streamSessionsRef.current.delete(activeConversationId)
       if (isVisible()) setMessages(saved)
     } catch (reason) {
       cancelled = reason instanceof DOMException && reason.name === 'AbortError'
-      if (cancelled) return
+      if (cancelled) {
+        if (activeConversationId !== null) streamSessionsRef.current.delete(activeConversationId)
+        return
+      }
       if (reason instanceof ApiError && reason.status === 401) {
         cancelled = true
         onSessionExpired()
       }
       else if (isVisible()) setError(reason instanceof Error ? reason.message : '메시지를 전송하지 못했습니다.')
+
+      const streamError = reason instanceof Error ? reason.message : '메시지를 전송하지 못했습니다.'
+      const session = activeConversationId === null ? null : streamSessionsRef.current.get(activeConversationId)
+      if (session && streamStarted && activeConversationId !== null) {
+        session.completed = true
+        session.error ??= streamError
+        session.assistantMessage.content = ''
+        const failedRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
+        messageRevisionRef.current.set(activeConversationId, failedRevision + 1)
+      } else if (activeConversationId !== null) {
+        streamSessionsRef.current.delete(activeConversationId)
+      }
 
       if (isVisible()) {
         const pendingIds = streamStarted ? [pendingAssistantId] : [pendingUserId, pendingAssistantId]
