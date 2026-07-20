@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
+from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,11 @@ from app.concurrency import (
 from app.db import Database
 from app.dependencies import CurrentUserForUnsafeRequest, JsonRequest, get_database
 from app.models import Conversation, Message
+from app.observability import (
+    record_llm_first_token,
+    record_llm_stream_delta,
+    record_llm_stream_duration,
+)
 from app.schemas import ConversationMessageCreate
 
 
@@ -43,6 +49,8 @@ async def stream_persisted_message(
 ) -> AsyncIterator[dict[str, str]]:
     try:
         response_parts: list[str] = []
+        stream_started_at = perf_counter()
+        first_token_at: float | None = None
         stream = get_stream_agent().run_stream(
             user_prompt,
             message_history=message_history,
@@ -50,8 +58,15 @@ async def stream_persisted_message(
 
         async with stream as result:
             async for token in result.stream_text(delta=True):
+                if first_token_at is None:
+                    first_token_at = perf_counter()
+                    record_llm_first_token(first_token_at - stream_started_at)
+
+                record_llm_stream_delta()
                 response_parts.append(token)
                 yield {"data": token}
+
+            record_llm_stream_duration(perf_counter() - stream_started_at)
 
         async with database.session_factory() as session:
             assistant_message = Message(

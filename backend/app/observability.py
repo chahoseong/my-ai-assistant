@@ -90,6 +90,18 @@ def record_http_request(
     )
 
 
+def record_llm_first_token(duration_seconds: float) -> None:
+    LLM_FIRST_TOKEN_SECONDS.observe(duration_seconds)
+
+
+def record_llm_stream_duration(duration_seconds: float) -> None:
+    LLM_STREAM_DURATION_SECONDS.observe(duration_seconds)
+
+
+def record_llm_stream_delta() -> None:
+    LLM_STREAM_DELTAS_TOTAL.inc()
+
+
 # Source: https://www.starlette.io/middleware/#pure-asgi-middleware
 # Source: https://www.starlette.io/middleware/#inspecting-or-modifying-the-response
 class RequestObservabilityMiddleware:
