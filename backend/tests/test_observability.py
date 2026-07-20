@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 import app.dependencies
+import app.main
 from app.observability import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
@@ -15,6 +16,24 @@ from app.observability import (
     configure_observability,
     get_logger,
 )
+from app.security import hash_password
+
+
+class SuccessfulStream:
+    async def __aenter__(self) -> "SuccessfulStream":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def stream_text(self, *, delta: bool):
+        assert delta is True
+        yield "safe assistant response"
+
+
+class SuccessfulAgent:
+    def run_stream(self, *_: object, **__: object) -> SuccessfulStream:
+        return SuccessfulStream()
 
 
 def metric_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
@@ -92,6 +111,42 @@ async def test_metrics_endpoint_exposes_metrics_without_recording_its_scrape(
     }
     assert "/metrics" not in metric_paths
     assert metric_total(HTTP_REQUESTS_TOTAL, "http_requests_total") == before_requests
+
+
+@pytest.mark.asyncio
+async def test_login_and_message_logs_exclude_sensitive_values(
+    client: AsyncClient, test_database, user_factory, monkeypatch, capfd
+) -> None:
+    password = "password-secret-7c5a1471"
+    message = "message-secret-2a90db8e"
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", SuccessfulAgent())
+    await user_factory(
+        username="observabilityuser",
+        password_hash=await hash_password(password),
+    )
+    capfd.readouterr()
+
+    login = await client.post(
+        "/api/auth/login",
+        json={"username": "observabilityuser", "password": password},
+    )
+    raw_token = login.cookies.get("assistant_session")
+    assert login.status_code == 204
+    assert raw_token is not None
+
+    conversation = await client.post("/api/conversations", json={})
+    assert conversation.status_code == 201
+
+    response = await client.post(
+        f"/api/conversations/{conversation.json()['id']}/messages",
+        json={"message": message},
+    )
+
+    assert response.status_code == 200
+    captured_logs = capfd.readouterr().out
+    for sensitive_value in (password, raw_token, message):
+        assert sensitive_value not in captured_logs
 
 
 @pytest.mark.asyncio
