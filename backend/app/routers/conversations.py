@@ -30,7 +30,7 @@ async def list_conversations(
             .order_by(Conversation.created_at.desc(), Conversation.id.desc())
         )
     except SQLAlchemyError as exc:
-        logger.error("conversation_list_failed", exc_info=True)
+        logger.error("conversation_list_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to list conversations.",
@@ -58,7 +58,7 @@ async def create_conversation(
         await session.refresh(conversation)
     except SQLAlchemyError as exc:
         await session.rollback()
-        logger.error("conversation_create_failed", exc_info=True)
+        logger.error("conversation_create_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create conversation.",

@@ -74,7 +74,7 @@ async def stream_persisted_message(
             raise
         except Exception:
             record_llm_stream_failure()
-            logger.error("message_stream_failed", exc_info=True)
+            logger.error("message_stream_failed")
             yield {"event": "error", "data": STREAM_ERROR_MESSAGE}
             return
 
@@ -92,7 +92,7 @@ async def stream_persisted_message(
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.error("message_stream_failed", exc_info=True)
+            logger.error("message_stream_failed")
             yield {"event": "error", "data": STREAM_ERROR_MESSAGE}
     finally:
         await lease.release()
@@ -122,7 +122,7 @@ async def send_message(
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        logger.exception("message_prepare_failed")
+        logger.error("message_prepare_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to prepare message.",
@@ -157,7 +157,7 @@ async def send_message(
                 await session.commit()
             except SQLAlchemyError as exc:
                 await session.rollback()
-                logger.exception("message_prepare_failed")
+                logger.error("message_prepare_failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Unable to prepare message.",

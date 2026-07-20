@@ -45,7 +45,7 @@ async def list_messages(
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        logger.error("message_list_failed", exc_info=True)
+        logger.error("message_list_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to list messages.",

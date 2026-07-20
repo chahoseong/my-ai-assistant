@@ -56,6 +56,10 @@ METRICS = {
 }
 METRICS_PATH = "/metrics"
 UNMATCHED_PATH = "__unmatched__"
+OTHER_HTTP_METHOD = "OTHER"
+KNOWN_HTTP_METHODS = frozenset(
+    {"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
+)
 
 
 def configure_observability() -> None:
@@ -63,7 +67,6 @@ def configure_observability() -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
-            structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ],
         logger_factory=structlog.PrintLoggerFactory(),
@@ -87,11 +90,21 @@ def is_metrics_request(scope: Scope) -> bool:
     return scope["path"] in (METRICS_PATH, f"{METRICS_PATH}/")
 
 
+def metric_http_method(method: str) -> str:
+    if method in KNOWN_HTTP_METHODS:
+        return method
+
+    return OTHER_HTTP_METHOD
+
+
 def record_http_request(
     *, method: str, path: str, status: int, duration_seconds: float
 ) -> None:
-    HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status=str(status)).inc()
-    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=path).observe(
+    normalized_method = metric_http_method(method)
+    HTTP_REQUESTS_TOTAL.labels(
+        method=normalized_method, path=path, status=str(status)
+    ).inc()
+    HTTP_REQUEST_DURATION_SECONDS.labels(method=normalized_method, path=path).observe(
         duration_seconds
     )
 

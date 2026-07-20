@@ -57,14 +57,14 @@ async def signup(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Username already exists.",
             ) from exc
-        logger.error("signup_integrity_error", exc_info=True)
+        logger.error("signup_integrity_error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create account.",
         ) from exc
     except SQLAlchemyError as exc:
         await session.rollback()
-        logger.error("signup_failed", exc_info=True)
+        logger.error("signup_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create account.",
@@ -105,7 +105,7 @@ async def login(
         await session.commit()
     except SQLAlchemyError as exc:
         await session.rollback()
-        logger.error("login_session_create_failed", exc_info=True)
+        logger.error("login_session_create_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to log in.",

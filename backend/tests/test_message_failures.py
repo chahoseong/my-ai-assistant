@@ -14,6 +14,9 @@ from app.observability import LLM_STREAM_FAILURES_TOTAL
 
 
 class FailingStreamResult:
+    def __init__(self, error_message: str = "model unavailable") -> None:
+        self.error_message = error_message
+
     async def __aenter__(self) -> "FailingStreamResult":
         return self
 
@@ -22,18 +25,21 @@ class FailingStreamResult:
 
     async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
         assert delta is True
-        raise RuntimeError("model unavailable")
+        raise RuntimeError(self.error_message)
         yield "unreachable"
 
 
 class FailingAgent:
+    def __init__(self, error_message: str = "model unavailable") -> None:
+        self.error_message = error_message
+
     def run_stream(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
     ) -> FailingStreamResult:
-        return FailingStreamResult()
+        return FailingStreamResult(self.error_message)
 
 
 class SuccessfulStreamResult:
@@ -92,7 +98,8 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=500)
     monkeypatch.setattr(app.dependencies, "database", test_database)
-    monkeypatch.setattr(app.main, "agent", FailingAgent())
+    failure_secret = "stream-error-secret-6e2b73f1"
+    monkeypatch.setattr(app.main, "agent", FailingAgent(failure_secret))
     before_failure_count = LLM_STREAM_FAILURES_TOTAL._value.get()
 
     user, client = await create_authenticated_client(
@@ -113,7 +120,9 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
     assert "data: Unable to generate a response." in body
     assert "event: done" not in body
     assert LLM_STREAM_FAILURES_TOTAL._value.get() == before_failure_count + 1
-    records = [json.loads(line) for line in capfd.readouterr().out.splitlines() if line]
+    captured_logs = capfd.readouterr().out
+    assert failure_secret not in captured_logs
+    records = [json.loads(line) for line in captured_logs.splitlines() if line]
     [failure_log] = [
         record for record in records if record["event"] == "message_stream_failed"
     ]
@@ -121,6 +130,7 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
         record for record in records if record["event"] == "http_request_complete"
     ]
     assert failure_log["request_id"] == access_log["request_id"]
+    assert "exception" not in failure_log
     UUID(failure_log["request_id"])
     assert [
         message.role

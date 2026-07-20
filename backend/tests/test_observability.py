@@ -228,6 +228,31 @@ async def test_unmatched_request_uses_fixed_path_for_logs_and_metrics(
 
 
 @pytest.mark.asyncio
+async def test_unknown_http_methods_share_fixed_metric_label(
+    client: AsyncClient,
+) -> None:
+    counter = HTTP_REQUESTS_TOTAL.labels(
+        method="OTHER", path="__unmatched__", status="404"
+    )
+    before_requests = counter._value.get()
+
+    first_response = await client.request("X-UNRECOGNIZED-ONE", "/api/not-a-route")
+    second_response = await client.request("X-UNRECOGNIZED-TWO", "/api/not-a-route")
+
+    assert first_response.status_code == 404
+    assert second_response.status_code == 404
+    assert counter._value.get() == before_requests + 2
+    metric_methods = {
+        sample.labels["method"]
+        for family in HTTP_REQUESTS_TOTAL.collect()
+        for sample in family.samples
+        if "method" in sample.labels
+    }
+    assert "X-UNRECOGNIZED-ONE" not in metric_methods
+    assert "X-UNRECOGNIZED-TWO" not in metric_methods
+
+
+@pytest.mark.asyncio
 async def test_signup_failure_correlates_failure_and_access_logs(
     client: AsyncClient, capfd, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
