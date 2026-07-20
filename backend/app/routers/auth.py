@@ -29,7 +29,7 @@ from app.security import (
 )
 
 
-router = APIRouter()
+router = APIRouter(prefix="/api/auth")
 logger = logging.getLogger(__name__)
 DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("dummy-login-password")
 

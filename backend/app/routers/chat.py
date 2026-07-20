@@ -21,7 +21,7 @@ from app.models import Conversation, Message
 from app.schemas import ConversationMessageCreate
 
 
-router = APIRouter()
+router = APIRouter(prefix="/api/conversations")
 logger = logging.getLogger(__name__)
 STREAM_ERROR_MESSAGE = "Unable to generate a response."
 

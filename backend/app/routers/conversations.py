@@ -15,7 +15,7 @@ from app.models import Conversation
 from app.schemas import ConversationCreate, ConversationResponse
 
 
-router = APIRouter()
+router = APIRouter(prefix="/api/conversations")
 logger = logging.getLogger(__name__)
 
 
