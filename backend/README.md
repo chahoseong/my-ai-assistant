@@ -188,6 +188,30 @@ $openapi.paths.PSObject.Properties.Name | Sort-Object
 The output must include `/api/conversations` and
 `/api/conversations/{conversation_id}/messages`.
 
+### Prometheus
+
+`/metrics` is unauthenticated so Prometheus can collect it. This is a local
+development setup only: production deployment must restrict access to that
+endpoint.
+
+With FastAPI running on `127.0.0.1:8001`, start Prometheus separately from the
+PostgreSQL Compose stack:
+
+```powershell
+docker compose -f compose.observability.yaml up -d
+docker compose -f compose.observability.yaml ps
+```
+
+Open `http://127.0.0.1:9090/targets` and confirm the `my-ai-assistant` target
+is `UP`. Prometheus scrapes `host.docker.internal:8001` every 15 seconds; this
+host name lets the container reach the FastAPI process running on the host.
+Query `http_requests_total` in the Prometheus UI to inspect the collected time
+series.
+
+The UI listens only on `127.0.0.1:9090`. Prometheus data persists in the
+`prometheus_data` named volume. `docker compose -f compose.observability.yaml
+down` keeps it, while adding `-v` removes the stored time series.
+
 ## Multi-turn API walkthrough
 
 ### Create a conversation
