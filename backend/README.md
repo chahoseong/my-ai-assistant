@@ -158,7 +158,7 @@ messages in a `cp949` PowerShell console:
 ```powershell
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-uv run fastapi dev app/main.py --host 127.0.0.1 --port 8001
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
 ```
 
 ### React frontend
@@ -187,6 +187,91 @@ $openapi.paths.PSObject.Properties.Name | Sort-Object
 
 The output must include `/api/conversations` and
 `/api/conversations/{conversation_id}/messages`.
+
+### Prometheus
+
+`/metrics` is unauthenticated so Prometheus can collect it. This is a local
+development setup only: production deployment must restrict access to that
+endpoint.
+
+With FastAPI running on `127.0.0.1:8001`, start Prometheus separately from the
+PostgreSQL Compose stack:
+
+```powershell
+docker compose -f compose.observability.yaml up -d
+docker compose -f compose.observability.yaml ps
+```
+
+Open `http://127.0.0.1:9090/targets` and confirm the `my-ai-assistant` target
+is `UP`. Prometheus scrapes `host.docker.internal:8001` every 15 seconds; this
+host name lets the container reach the FastAPI process running on the host.
+Query `http_requests_total` in the Prometheus UI to inspect the collected time
+series.
+
+The UI listens only on `127.0.0.1:9090`. Prometheus data persists in the
+`prometheus_data` named volume. `docker compose -f compose.observability.yaml
+down` keeps it, while adding `-v` removes the stored time series.
+
+### Metrics reference
+
+Prometheus stores the measurements, while its query screen asks a question of
+those measurements. Enter a query below at `http://127.0.0.1:9090/query` and
+select **Execute**. After generating a request, wait up to 15 seconds for the
+next scrape before querying.
+
+Counters restart when the FastAPI process restarts. Use `rate` or `increase`
+for a change over time; use a raw counter value only when inspecting the
+current process lifetime.
+
+| Metric | Type and labels | What it answers |
+| --- | --- | --- |
+| `http_requests_total` | Counter: `method`, `path`, `status` | How many requests reached each route and what status they returned. `path` is a route template, never a conversation ID or raw URL. Unknown HTTP methods are grouped as `OTHER`. |
+| `http_request_duration_seconds` | Histogram: `method`, `path` | How long each HTTP request took. Prometheus exposes `_bucket`, `_count`, and `_sum` series for a histogram. |
+| `llm_first_token_seconds` | Histogram | How long it took from starting an LLM call until its first streamed token. |
+| `llm_stream_duration_seconds` | Histogram | How long completed LLM streams took in total. |
+| `llm_stream_deltas_total` | Counter | How many streamed text chunks the LLM emitted. |
+| `llm_stream_failures_total` | Counter | How many LLM streams failed after they began. A cancelled client request is not counted as a failure. |
+| `conversation_lock_conflicts_total` | Counter | How often a second request tried to stream into a conversation already being streamed. These requests return `409 Conflict`. |
+| `db_pool_in_use` | Gauge | How many SQLAlchemy database connections are currently checked out from the pool. |
+
+#### Useful PromQL queries
+
+```promql
+# Requests grouped by route, method, and response status.
+sum by (method, path, status) (http_requests_total)
+
+# Request rate over the past five minutes.
+sum by (method, path, status) (rate(http_requests_total[5m]))
+
+# p95 HTTP latency by route. Histograms require their _bucket series.
+histogram_quantile(
+  0.95,
+  sum by (le, method, path) (rate(http_request_duration_seconds_bucket[5m]))
+)
+
+# LLM stream failures during the past five minutes.
+increase(llm_stream_failures_total[5m])
+
+# p95 time to the first LLM token.
+histogram_quantile(
+  0.95,
+  sum by (le) (rate(llm_first_token_seconds_bucket[5m]))
+)
+
+# p95 total LLM stream duration.
+histogram_quantile(
+  0.95,
+  sum by (le) (rate(llm_stream_duration_seconds_bucket[5m]))
+)
+
+# Current number of database connections in use.
+db_pool_in_use
+```
+
+`/metrics` itself is intentionally excluded from `http_requests_total` and
+`http_request_duration_seconds`. Otherwise, every Prometheus scrape would
+create another application request measurement and distort the data it is
+collecting.
 
 ## Multi-turn API walkthrough
 
@@ -257,7 +342,7 @@ Stop and restart only the FastAPI process, leaving PostgreSQL running:
 
 ```powershell
 # Stop the FastAPI terminal with Ctrl+C, then run again:
-uv run fastapi dev app/main.py
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
 ```
 
 Call the message-list endpoint again with the same conversation ID. The rows

@@ -20,6 +20,20 @@ from app.concurrency import release_conversation, try_acquire_conversation
 from app.models import Conversation, Message, User
 from app.routers import chat as chat_router
 from app.schemas import ConversationMessageCreate
+from app.observability import (
+    LLM_FIRST_TOKEN_SECONDS,
+    LLM_STREAM_DELTAS_TOTAL,
+    LLM_STREAM_DURATION_SECONDS,
+)
+
+
+def metric_sample_value(metric, sample_name: str) -> float:
+    for family in metric.collect():
+        for sample in family.samples:
+            if sample.name == sample_name:
+                return sample.value
+
+    raise AssertionError(f"Missing {sample_name} sample")
 
 
 class FakeStreamResult:
@@ -72,7 +86,7 @@ async def client(authenticated_user) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.mark.asyncio
-async def test_send_message_streams_and_persists_complete_turn(
+async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     client: AsyncClient,
     authenticated_user,
     test_database,
@@ -82,6 +96,13 @@ async def test_send_message_streams_and_persists_complete_turn(
     fake_agent = RecordingAgent(["Hello", " world"])
     monkeypatch.setattr(app.main, "agent", fake_agent)
     conversation_id = UUID(int=400)
+    before_ttft_count = metric_sample_value(
+        LLM_FIRST_TOKEN_SECONDS, "llm_first_token_seconds_count"
+    )
+    before_duration_count = metric_sample_value(
+        LLM_STREAM_DURATION_SECONDS, "llm_stream_duration_seconds_count"
+    )
+    before_delta_count = LLM_STREAM_DELTAS_TOTAL._value.get()
 
     async with test_database.session_factory() as session:
         session.add(
@@ -153,6 +174,17 @@ async def test_send_message_streams_and_persists_complete_turn(
         "Hello world",
     ]
     assert f"data: {stored_messages[-1].id}" in body
+    assert (
+        metric_sample_value(LLM_FIRST_TOKEN_SECONDS, "llm_first_token_seconds_count")
+        == before_ttft_count + 1
+    )
+    assert (
+        metric_sample_value(
+            LLM_STREAM_DURATION_SECONDS, "llm_stream_duration_seconds_count"
+        )
+        == before_duration_count + 1
+    )
+    assert LLM_STREAM_DELTAS_TOTAL._value.get() == before_delta_count + 2
 
 
 @pytest.mark.asyncio
