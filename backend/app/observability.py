@@ -102,6 +102,10 @@ def record_llm_stream_delta() -> None:
     LLM_STREAM_DELTAS_TOTAL.inc()
 
 
+def record_llm_stream_failure() -> None:
+    LLM_STREAM_FAILURES_TOTAL.inc()
+
+
 # Source: https://www.starlette.io/middleware/#pure-asgi-middleware
 # Source: https://www.starlette.io/middleware/#inspecting-or-modifying-the-response
 class RequestObservabilityMiddleware:

@@ -12,6 +12,7 @@ import app.main
 import app.routers.chat as chat_router
 from app.concurrency import release_conversation, try_acquire_conversation
 from app.models import Conversation
+from app.observability import LLM_STREAM_FAILURES_TOTAL
 from app.schemas import ConversationMessageCreate
 
 
@@ -192,6 +193,7 @@ async def test_cancelled_stream_releases_lock_for_next_request(
     transport = ASGITransport(app=app.main.app)
     conversation_id = UUID(int=603)
     agent = CancelThenSuccessAgent()
+    before_failure_count = LLM_STREAM_FAILURES_TOTAL._value.get()
     monkeypatch.setattr(app.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
@@ -239,6 +241,7 @@ async def test_cancelled_stream_releases_lock_for_next_request(
                     await third_task
 
     assert second.status_code == 200
+    assert LLM_STREAM_FAILURES_TOTAL._value.get() == before_failure_count
 
 
 @pytest.mark.asyncio
