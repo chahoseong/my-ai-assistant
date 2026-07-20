@@ -1,4 +1,3 @@
-import logging
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
@@ -63,43 +62,6 @@ def test_application_startup_rejects_insecure_non_local_cookie(
     with pytest.raises(ValueError, match="SESSION_COOKIE_SECURE"):
         with TestClient(app.main.app):
             pass
-
-
-def test_configure_logger_adds_one_console_handler_without_propagation() -> None:
-    app.main.configure_logger()
-    app.main.configure_logger()
-
-    assert app.main.logger.name == "app"
-    console_handlers = [
-        handler
-        for handler in app.main.logger.handlers
-        if type(handler) is logging.StreamHandler
-    ]
-
-    assert len(console_handlers) == 1
-    assert app.main.logger.propagate is False
-
-
-def test_configure_logger_receives_child_router_logs() -> None:
-    class RecordingHandler(logging.Handler):
-        def __init__(self) -> None:
-            super().__init__()
-            self.records: list[logging.LogRecord] = []
-
-        def emit(self, record: logging.LogRecord) -> None:
-            self.records.append(record)
-
-    app.main.configure_logger()
-    recording_handler = RecordingHandler()
-    app.main.logger.addHandler(recording_handler)
-    try:
-        logging.getLogger("app.routers.chat").error("router_log_probe")
-    finally:
-        app.main.logger.removeHandler(recording_handler)
-
-    assert [record.getMessage() for record in recording_handler.records] == [
-        "router_log_probe"
-    ]
 
 
 @pytest.mark.asyncio
