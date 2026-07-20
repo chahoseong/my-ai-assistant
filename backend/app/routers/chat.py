@@ -24,6 +24,7 @@ from app.observability import (
     record_llm_stream_delta,
     record_llm_stream_duration,
     record_llm_stream_failure,
+    record_conversation_lock_conflict,
 )
 from app.schemas import ConversationMessageCreate
 
@@ -128,6 +129,7 @@ async def send_message(
         ) from exc
 
     if not await try_acquire_conversation(conversation_id):
+        record_conversation_lock_conflict()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A message is already being generated for this conversation.",

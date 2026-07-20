@@ -1,5 +1,6 @@
 # structlog contextvars: https://www.structlog.org/en/stable/contextvars.html
 # Prometheus Python metrics: https://prometheus.github.io/client_python/instrumenting/
+from collections.abc import Callable
 from time import perf_counter
 from uuid import uuid4
 
@@ -104,6 +105,15 @@ def record_llm_stream_delta() -> None:
 
 def record_llm_stream_failure() -> None:
     LLM_STREAM_FAILURES_TOTAL.inc()
+
+
+def record_conversation_lock_conflict() -> None:
+    CONVERSATION_LOCK_CONFLICTS_TOTAL.inc()
+
+
+# Source: https://prometheus.github.io/client_python/instrumenting/gauge/
+def bind_db_pool_in_use(pool_checkedout: Callable[[], int]) -> None:
+    DB_POOL_IN_USE.set_function(pool_checkedout)
 
 
 # Source: https://www.starlette.io/middleware/#pure-asgi-middleware

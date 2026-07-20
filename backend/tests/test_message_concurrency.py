@@ -12,7 +12,10 @@ import app.main
 import app.routers.chat as chat_router
 from app.concurrency import release_conversation, try_acquire_conversation
 from app.models import Conversation
-from app.observability import LLM_STREAM_FAILURES_TOTAL
+from app.observability import (
+    CONVERSATION_LOCK_CONFLICTS_TOTAL,
+    LLM_STREAM_FAILURES_TOTAL,
+)
 from app.schemas import ConversationMessageCreate
 
 
@@ -117,6 +120,7 @@ async def test_same_conversation_is_rejected_without_waiting(
         user_factory, session_factory, transport
     )
     await create_conversation(test_database, conversation_id, user.id)
+    before_conflicts = CONVERSATION_LOCK_CONFLICTS_TOTAL._value.get()
     async with client:
         first = asyncio.create_task(
             client.post(
@@ -137,6 +141,9 @@ async def test_same_conversation_is_rejected_without_waiting(
             assert second_task.done()
             second = await second_task
             assert second.status_code == 409
+            assert (
+                CONVERSATION_LOCK_CONFLICTS_TOTAL._value.get() == before_conflicts + 1
+            )
         finally:
             agent.release.set()
             first_response = await first
