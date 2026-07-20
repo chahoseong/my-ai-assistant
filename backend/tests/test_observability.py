@@ -3,6 +3,8 @@ from uuid import UUID
 
 from httpx import AsyncClient
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 import app.dependencies
@@ -137,3 +139,33 @@ async def test_unmatched_request_uses_fixed_path_for_logs_and_metrics(
         record for record in records if record["event"] == "http_request_complete"
     ]
     assert access_log["path"] == "__unmatched__"
+
+
+@pytest.mark.asyncio
+async def test_signup_failure_correlates_failure_and_access_logs(
+    client: AsyncClient, capfd, test_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app.dependencies, "database", test_database)
+
+    async def fail_commit(_: AsyncSession) -> None:
+        raise SQLAlchemyError("controlled signup failure")
+
+    monkeypatch.setattr(AsyncSession, "commit", fail_commit)
+    capfd.readouterr()
+    response = await client.post(
+        "/api/auth/signup",
+        json={
+            "username": "correlation_user",
+            "password": "correct horse battery staple",
+        },
+    )
+
+    assert response.status_code == 500
+    captured = capfd.readouterr()
+    records = [json.loads(line) for line in captured.out.splitlines() if line]
+    [failure_log] = [record for record in records if record["event"] == "signup_failed"]
+    [access_log] = [
+        record for record in records if record["event"] == "http_request_complete"
+    ]
+    assert failure_log["request_id"] == access_log["request_id"]
+    UUID(failure_log["request_id"])

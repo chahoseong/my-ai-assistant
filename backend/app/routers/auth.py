@@ -1,4 +1,3 @@
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -16,6 +15,7 @@ from app.dependencies import (
     get_session,
 )
 from app.models import AuthSession, User
+from app.observability import get_logger
 from app.schemas import LoginRequest, PublicUser, SignupRequest
 from app.security import (
     PASSWORD_HASHER,
@@ -30,7 +30,7 @@ from app.security import (
 
 
 router = APIRouter(prefix="/api/auth")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("dummy-login-password")
 
 
@@ -57,14 +57,14 @@ async def signup(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Username already exists.",
             ) from exc
-        logger.exception("signup_integrity_error")
+        logger.error("signup_integrity_error", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create account.",
         ) from exc
     except SQLAlchemyError as exc:
         await session.rollback()
-        logger.exception("signup_failed")
+        logger.error("signup_failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create account.",
@@ -105,7 +105,7 @@ async def login(
         await session.commit()
     except SQLAlchemyError as exc:
         await session.rollback()
-        logger.exception("login_session_create_failed")
+        logger.error("login_session_create_failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to log in.",

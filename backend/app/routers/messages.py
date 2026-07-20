@@ -1,4 +1,3 @@
-import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,11 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, get_session
 from app.models import Conversation, Message
+from app.observability import get_logger
 from app.schemas import MessageResponse
 
 
 router = APIRouter(prefix="/api/conversations")
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @router.get(
@@ -45,7 +45,7 @@ async def list_messages(
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
-        logger.exception("message_list_failed")
+        logger.error("message_list_failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to list messages.",
