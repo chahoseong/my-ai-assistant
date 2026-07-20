@@ -158,7 +158,7 @@ messages in a `cp949` PowerShell console:
 ```powershell
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-uv run fastapi dev app/main.py --host 127.0.0.1 --port 8001
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
 ```
 
 ### React frontend
@@ -342,7 +342,7 @@ Stop and restart only the FastAPI process, leaving PostgreSQL running:
 
 ```powershell
 # Stop the FastAPI terminal with Ctrl+C, then run again:
-uv run fastapi dev app/main.py
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
 ```
 
 Call the message-list endpoint again with the same conversation ID. The rows
