@@ -26,6 +26,15 @@ def metric_sample_value(metric, sample_name: str, labels: dict[str, str]) -> flo
     raise AssertionError(f"Missing {sample_name} sample with labels {labels}")
 
 
+def metric_total(metric, sample_name: str) -> float:
+    return sum(
+        sample.value
+        for family in metric.collect()
+        for sample in family.samples
+        if sample.name == sample_name
+    )
+
+
 def test_configured_logger_writes_json_with_bound_request_id(capsys) -> None:
     structlog.reset_defaults()
     configure_observability()
@@ -61,6 +70,28 @@ def test_metrics_match_the_issue_contract() -> None:
         "conversation_lock_conflicts_total": (),
         "db_pool_in_use": (),
     }
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_exposes_metrics_without_recording_its_scrape(
+    client: AsyncClient,
+) -> None:
+    before_requests = metric_total(HTTP_REQUESTS_TOTAL, "http_requests_total")
+
+    response = await client.get("/metrics", follow_redirects=True)
+    direct_response = await client.get("/metrics/")
+
+    assert response.status_code == 200
+    assert direct_response.status_code == 200
+    assert "http_requests_total" in response.text
+    metric_paths = {
+        sample.labels["path"]
+        for family in HTTP_REQUESTS_TOTAL.collect()
+        for sample in family.samples
+        if "path" in sample.labels
+    }
+    assert "/metrics" not in metric_paths
+    assert metric_total(HTTP_REQUESTS_TOTAL, "http_requests_total") == before_requests
 
 
 @pytest.mark.asyncio

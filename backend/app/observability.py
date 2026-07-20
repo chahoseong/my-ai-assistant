@@ -54,6 +54,7 @@ METRICS = {
     "conversation_lock_conflicts_total": CONVERSATION_LOCK_CONFLICTS_TOTAL,
     "db_pool_in_use": DB_POOL_IN_USE,
 }
+METRICS_PATH = "/metrics"
 UNMATCHED_PATH = "__unmatched__"
 
 
@@ -80,6 +81,10 @@ def route_template(scope: Scope) -> str:
         return route_path
 
     return UNMATCHED_PATH
+
+
+def is_metrics_request(scope: Scope) -> bool:
+    return scope["path"] in (METRICS_PATH, f"{METRICS_PATH}/")
 
 
 def record_http_request(
@@ -123,7 +128,7 @@ class RequestObservabilityMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or is_metrics_request(scope):
             await self.app(scope, receive, send)
             return
 
