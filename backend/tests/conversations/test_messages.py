@@ -5,9 +5,13 @@ from uuid import UUID
 from httpx import ASGITransport, AsyncClient
 import pytest
 
+
 import app.database.dependencies
 import app.main
 from app.database.models import Conversation, Message
+
+pytestmark = pytest.mark.integration
+
 
 
 @pytest.fixture

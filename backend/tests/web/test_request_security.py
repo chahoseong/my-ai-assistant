@@ -1,8 +1,13 @@
 import pytest
+
+
 from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.config import AuthSettings
+
+pytestmark = pytest.mark.unit
+
 
 
 def make_request(headers: dict[str, str]) -> Request:

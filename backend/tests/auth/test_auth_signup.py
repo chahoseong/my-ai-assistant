@@ -2,10 +2,15 @@ import asyncio
 
 from httpx import AsyncClient
 import pytest
+
+
 from sqlalchemy import select
 
 import app.database.dependencies
 from app.database.models import User
+
+pytestmark = pytest.mark.integration
+
 
 
 @pytest.mark.asyncio

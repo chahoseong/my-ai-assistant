@@ -3,7 +3,11 @@ from uuid import UUID
 
 import pytest
 
+
 from app.concurrency import release_conversation, try_acquire_conversation
+
+pytestmark = pytest.mark.unit
+
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "unit: tests isolated from external boundaries",
+    "integration: tests that cross an HTTP, database, or process boundary",
+    "contract: tests that preserve a public or cross-module interface",
+]
 
 [tool.ruff]
 target-version = "py314"

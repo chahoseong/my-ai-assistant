@@ -2,9 +2,13 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic_ai import ModelRequest, ModelResponse, TextPart, UserPromptPart
+import pytest
 
 from app.agent import build_message_history
 from app.database.models import Message
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_build_message_history_maps_database_messages_to_model_messages() -> None:

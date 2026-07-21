@@ -1,7 +1,12 @@
 from pathlib import Path
 
+import pytest
 
-README_PATH = Path(__file__).parents[1] / "README.md"
+
+pytestmark = pytest.mark.contract
+
+
+README_PATH = Path(__file__).parents[2] / "README.md"
 
 
 def test_documented_server_commands_disable_uvicorn_access_logs() -> None:

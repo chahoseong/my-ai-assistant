@@ -1,5 +1,10 @@
 import importlib
 
+import pytest
+
+
+pytestmark = pytest.mark.contract
+
 
 def _foreign_key_ondelete(table, column_name: str) -> str | None:
     foreign_key = next(iter(table.c[column_name].foreign_keys))

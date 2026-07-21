@@ -2,9 +2,14 @@ import importlib
 from typing import cast
 
 import pytest
+
+
 from sqlalchemy.pool import QueuePool
 
 from app.observability.metrics import DB_POOL_IN_USE, bind_db_pool_in_use
+
+pytestmark = pytest.mark.unit
+
 
 
 def db_pool_in_use() -> float:

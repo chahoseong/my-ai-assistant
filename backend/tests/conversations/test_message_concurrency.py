@@ -5,6 +5,8 @@ from uuid import UUID
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage
 import pytest
+
+
 from starlette.types import Message, Scope
 
 import app.database.dependencies
@@ -17,6 +19,9 @@ from app.observability.metrics import (
     LLM_STREAM_FAILURES_TOTAL,
 )
 from app.web.schemas import ConversationMessageCreate
+
+pytestmark = pytest.mark.integration
+
 
 
 class BlockingStreamResult:

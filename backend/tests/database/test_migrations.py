@@ -8,13 +8,18 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
+
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+pytestmark = pytest.mark.integration
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def alembic(*arguments: str) -> None:

@@ -2,6 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
 import pytest
+
+
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -9,6 +11,9 @@ import app.database.dependencies
 import app.routers.auth
 from app.database.models import AuthSession
 from app.auth.security import hash_password, hash_session_token
+
+pytestmark = pytest.mark.integration
+
 
 
 async def create_login_user(user_factory):

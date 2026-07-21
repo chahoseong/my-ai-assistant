@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.unit
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_load_database_settings_reads_database_url() -> None:
@@ -70,7 +73,7 @@ def test_unit_tests_can_run_without_database_urls() -> None:
             "-m",
             "pytest",
             "-q",
-            "tests/test_config.py::test_load_database_settings_reads_database_url",
+            "tests/app/test_config.py::test_load_database_settings_reads_database_url",
         ],
         cwd=PROJECT_ROOT,
         env=test_environment,

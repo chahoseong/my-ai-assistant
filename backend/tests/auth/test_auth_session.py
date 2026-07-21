@@ -3,7 +3,11 @@ from datetime import UTC, datetime, timedelta
 from httpx import AsyncClient
 import pytest
 
+
 import app.database.dependencies
+
+pytestmark = pytest.mark.integration
+
 
 
 async def authenticated_client(client: AsyncClient, user_factory, session_factory):

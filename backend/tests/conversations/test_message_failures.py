@@ -5,12 +5,17 @@ from uuid import UUID
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage
 import pytest
+
+
 from sqlalchemy import select
 
 import app.database.dependencies
 import app.main
 from app.database.models import Conversation, Message
 from app.observability.metrics import LLM_STREAM_FAILURES_TOTAL
+
+pytestmark = pytest.mark.integration
+
 
 
 class FailingStreamResult:

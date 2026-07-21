@@ -1,10 +1,14 @@
 import pytest
 
+
 from tests.support.database_safety import (
     UnsafeTestDatabaseError,
     validate_test_database_identity,
     validate_test_database_url,
 )
+
+
+pytestmark = pytest.mark.unit
 
 
 def test_test_database_url_is_required() -> None:

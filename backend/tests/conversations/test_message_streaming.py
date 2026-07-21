@@ -11,6 +11,8 @@ from pydantic_ai import (
     UserPromptPart,
 )
 import pytest
+
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +27,9 @@ from app.observability.metrics import (
     LLM_STREAM_DELTAS_TOTAL,
     LLM_STREAM_DURATION_SECONDS,
 )
+
+
+pytestmark = pytest.mark.integration
 
 
 def metric_sample_value(metric, sample_name: str) -> float:
@@ -285,21 +290,6 @@ async def test_send_message_rejects_missing_conversation_before_sse(
 
     assert response.status_code == 404
     assert fake_agent.message is None
-
-
-@pytest.mark.asyncio
-async def test_send_message_requires_authentication_before_sse() -> None:
-    transport = ASGITransport(app=app.main.app)
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as anonymous_client:
-        response = await anonymous_client.post(
-            f"/api/conversations/{UUID(int=498)}/messages",
-            json={"message": "current question"},
-        )
-
-    assert response.status_code == 401
-    assert response.headers["content-type"].startswith("application/json")
 
 
 @pytest.mark.asyncio

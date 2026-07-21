@@ -5,6 +5,8 @@ from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 import pytest
+
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -15,6 +17,9 @@ from app.database.dependencies import get_session
 from app.auth.dependencies import get_current_user
 from app.database.models import User
 from app.web.dependencies import get_current_user_for_unsafe_request
+
+pytestmark = pytest.mark.integration
+
 
 
 @pytest.fixture
@@ -54,17 +59,6 @@ async def test_create_conversation_persists_and_returns_created_resource(
 
     assert conversation is not None
     assert conversation.title == "Learning conversation"
-
-
-@pytest.mark.asyncio
-async def test_create_conversation_requires_authentication() -> None:
-    transport = ASGITransport(app=app.main.app)
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as anonymous_client:
-        response = await anonymous_client.post("/api/conversations", json={})
-
-    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

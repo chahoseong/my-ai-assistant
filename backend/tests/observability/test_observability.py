@@ -3,6 +3,8 @@ from uuid import UUID
 
 from httpx import AsyncClient
 import pytest
+
+
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
@@ -16,6 +18,9 @@ from app.observability.metrics import (
     METRICS,
 )
 from app.auth.security import hash_password
+
+pytestmark = [pytest.mark.integration, pytest.mark.contract]
+
 
 
 class SuccessfulStream:
