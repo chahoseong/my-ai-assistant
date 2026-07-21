@@ -30,21 +30,21 @@ def test_exact_allowed_origin_and_missing_origin_are_allowed() -> None:
     settings = AuthSettings(
         app_env="local",
         cookie_secure=False,
-        allowed_origins=frozenset({"http://localhost:8000"}),
+        allowed_origins=frozenset({"http://localhost:5173"}),
     )
 
-    require_allowed_origin(make_request({"origin": "http://localhost:8000"}), settings)
+    require_allowed_origin(make_request({"origin": "http://localhost:5173"}), settings)
     require_allowed_origin(make_request({}), settings)
 
 
-@pytest.mark.parametrize("origin", ["http://localhost:8000.evil", "null"])
+@pytest.mark.parametrize("origin", ["http://localhost:5173.evil", "null"])
 def test_mismatched_and_null_origin_are_rejected(origin: str) -> None:
     from app.web.security import require_allowed_origin
 
     settings = AuthSettings(
         app_env="local",
         cookie_secure=False,
-        allowed_origins=frozenset({"http://localhost:8000"}),
+        allowed_origins=frozenset({"http://localhost:5173"}),
     )
 
     with pytest.raises(HTTPException) as exc_info:

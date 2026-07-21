@@ -37,6 +37,16 @@ def test_non_local_environment_requires_secure_cookie() -> None:
         config.load_auth_settings({"APP_ENV": "production"})
 
 
+def test_auth_settings_default_to_vite_development_origins() -> None:
+    config = importlib.import_module("app.config")
+
+    settings = config.load_auth_settings({})
+
+    assert settings.allowed_origins == frozenset(
+        {"http://127.0.0.1:5173", "http://localhost:5173"}
+    )
+
+
 def test_auth_settings_parse_exact_allowed_origins() -> None:
     config = importlib.import_module("app.config")
 
@@ -44,14 +54,14 @@ def test_auth_settings_parse_exact_allowed_origins() -> None:
         {
             "APP_ENV": "production",
             "SESSION_COOKIE_SECURE": "true",
-            "AUTH_ALLOWED_ORIGINS": "https://app.example.com, http://localhost:8000,",
+            "AUTH_ALLOWED_ORIGINS": "https://app.example.com, http://localhost:5173,",
         }
     )
 
     assert settings.app_env == "production"
     assert settings.cookie_secure is True
     assert settings.allowed_origins == frozenset(
-        {"https://app.example.com", "http://localhost:8000"}
+        {"https://app.example.com", "http://localhost:5173"}
     )
 
 
