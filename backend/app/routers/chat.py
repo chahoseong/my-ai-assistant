@@ -15,18 +15,19 @@ from app.concurrency import (
     ConversationLease,
     try_acquire_conversation,
 )
-from app.db import Database
-from app.dependencies import CurrentUserForUnsafeRequest, JsonRequest, get_database
-from app.models import Conversation, Message
-from app.observability import (
-    get_logger,
+from app.database.core import Database
+from app.database.dependencies import get_database
+from app.web.dependencies import CurrentUserForUnsafeRequest, JsonRequest
+from app.database.models import Conversation, Message
+from app.observability.logging import get_logger
+from app.observability.metrics import (
     record_llm_first_token,
     record_llm_stream_delta,
     record_llm_stream_duration,
     record_llm_stream_failure,
     record_conversation_lock_conflict,
 )
-from app.schemas import ConversationMessageCreate
+from app.web.schemas import ConversationMessageCreate
 
 
 router = APIRouter(prefix="/api/conversations")

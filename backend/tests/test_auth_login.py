@@ -5,10 +5,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-import app.dependencies
+import app.database.dependencies
 import app.routers.auth
-from app.models import AuthSession
-from app.security import hash_password, hash_session_token
+from app.database.models import AuthSession
+from app.auth.security import hash_password, hash_session_token
 
 
 async def create_login_user(user_factory):
@@ -23,7 +23,7 @@ async def create_login_user(user_factory):
 async def test_login_creates_hashed_30_day_session_and_cookie(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user, password = await create_login_user(user_factory)
     before_login = datetime.now(UTC)
 
@@ -60,7 +60,7 @@ async def test_login_creates_hashed_30_day_session_and_cookie(
 async def test_unknown_user_and_wrong_password_have_identical_401_body(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     _, password = await create_login_user(user_factory)
 
     unknown_response = await client.post(
@@ -83,7 +83,7 @@ async def test_unknown_user_and_wrong_password_have_identical_401_body(
 async def test_unknown_user_verifies_dummy_hash(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     verified_hashes: list[str] = []
 
     async def verify_spy(encoded_hash: str, password: str) -> bool:
@@ -105,7 +105,7 @@ async def test_unknown_user_verifies_dummy_hash(
 async def test_login_rehashes_stale_password_hash(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user, password = await create_login_user(user_factory)
     monkeypatch.setattr(app.routers.auth, "password_needs_rehash", lambda _: True)
 
@@ -129,7 +129,7 @@ async def test_login_rehashes_stale_password_hash(
 async def test_login_does_not_set_cookie_when_session_commit_fails(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     _, password = await create_login_user(user_factory)
 
     async def failing_commit(self) -> None:

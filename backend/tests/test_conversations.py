@@ -8,20 +8,18 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-import app.dependencies
+import app.database.dependencies
 import app.main
-from app.models import Conversation
-from app.dependencies import (
-    get_current_user,
-    get_current_user_for_unsafe_request,
-    get_session,
-)
-from app.models import User
+from app.database.models import Conversation
+from app.database.dependencies import get_session
+from app.auth.dependencies import get_current_user
+from app.database.models import User
+from app.web.dependencies import get_current_user_for_unsafe_request
 
 
 @pytest.fixture
 async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user = await user_factory()
     _, token = await session_factory(user=user)
     return user, token
@@ -39,7 +37,7 @@ async def client(authenticated_user) -> AsyncIterator[AsyncClient]:
 async def test_create_conversation_persists_and_returns_created_resource(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/conversations", json={"title": "Learning conversation"}
@@ -181,7 +179,7 @@ async def test_list_conversations_returns_safe_error_when_query_fails() -> None:
 async def test_create_conversation_rejects_non_json_content_type(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/conversations",
@@ -196,7 +194,7 @@ async def test_create_conversation_rejects_non_json_content_type(
 async def test_create_conversation_allows_missing_title(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post("/api/conversations", json={})
 
@@ -208,7 +206,7 @@ async def test_create_conversation_allows_missing_title(
 async def test_create_conversation_accepts_title_at_maximum_length(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     title = "t" * 200
 
     response = await client.post("/api/conversations", json={"title": title})
@@ -221,7 +219,7 @@ async def test_create_conversation_accepts_title_at_maximum_length(
 async def test_create_conversation_rejects_title_over_maximum_length(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     async with test_database.session_factory() as session:
         before_count = await session.scalar(

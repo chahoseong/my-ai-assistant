@@ -14,13 +14,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import app.dependencies
+import app.database.dependencies
 import app.main
 from app.concurrency import release_conversation, try_acquire_conversation
-from app.models import Conversation, Message, User
+from app.database.models import Conversation, Message, User
 from app.routers import chat as chat_router
-from app.schemas import ConversationMessageCreate
-from app.observability import (
+from app.web.schemas import ConversationMessageCreate
+from app.observability.metrics import (
     LLM_FIRST_TOKEN_SECONDS,
     LLM_STREAM_DELTAS_TOTAL,
     LLM_STREAM_DURATION_SECONDS,
@@ -71,7 +71,7 @@ class RecordingAgent:
 
 @pytest.fixture
 async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user = await user_factory()
     _, token = await session_factory(user=user)
     return user, token
@@ -92,7 +92,7 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     test_database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     fake_agent = RecordingAgent(["Hello", " world"])
     monkeypatch.setattr(app.main, "agent", fake_agent)
     conversation_id = UUID(int=400)
@@ -194,7 +194,7 @@ async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
     test_database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
     conversation_id = UUID(int=403)
 
@@ -237,7 +237,7 @@ async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
 async def test_background_cleanup_does_not_release_new_owner(
     test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
     conversation_id = UUID(int=404)
     owner_id = UUID(int=405)
@@ -274,7 +274,7 @@ async def test_background_cleanup_does_not_release_new_owner(
 async def test_send_message_rejects_missing_conversation_before_sse(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     fake_agent = RecordingAgent(["should not run"])
     monkeypatch.setattr(app.main, "agent", fake_agent)
 
@@ -306,7 +306,7 @@ async def test_send_message_requires_authentication_before_sse() -> None:
 async def test_send_message_rejects_non_json_content_type(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         f"/api/conversations/{UUID(int=496)}/messages",
@@ -321,7 +321,7 @@ async def test_send_message_rejects_non_json_content_type(
 async def test_non_owner_gets_not_found_before_conversation_lock(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     owner = await user_factory(username="owner")
     conversation_id = UUID(int=497)
     async with test_database.session_factory() as session:

@@ -1,6 +1,6 @@
 import pytest
 
-from app.test_db_safety import (
+from tests.support.database_safety import (
     UnsafeTestDatabaseError,
     validate_test_database_identity,
     validate_test_database_url,

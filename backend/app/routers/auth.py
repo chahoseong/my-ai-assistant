@@ -7,17 +7,16 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import AuthSettings
-from app.dependencies import (
+from app.auth.dependencies import CurrentUser, get_auth_settings
+from app.database.dependencies import get_session
+from app.web.dependencies import (
     AllowedOrigin,
-    CurrentUser,
     JsonRequest,
-    get_auth_settings,
-    get_session,
 )
-from app.models import AuthSession, User
-from app.observability import get_logger
-from app.schemas import LoginRequest, PublicUser, SignupRequest
-from app.security import (
+from app.database.models import AuthSession, User
+from app.observability.logging import get_logger
+from app.web.schemas import LoginRequest, PublicUser, SignupRequest
+from app.auth.security import (
     PASSWORD_HASHER,
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE_SECONDS,

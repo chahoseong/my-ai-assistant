@@ -5,14 +5,14 @@ from uuid import UUID
 from httpx import ASGITransport, AsyncClient
 import pytest
 
-import app.dependencies
+import app.database.dependencies
 import app.main
-from app.models import Conversation, Message
+from app.database.models import Conversation, Message
 
 
 @pytest.fixture
 async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user = await user_factory()
     _, token = await session_factory(user=user)
     return user, token
@@ -33,7 +33,7 @@ async def test_list_messages_returns_deterministic_created_at_and_id_order(
     test_database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     conversation_id = UUID(int=100)
     same_time = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -83,7 +83,7 @@ async def test_list_messages_returns_empty_list_for_existing_empty_conversation(
     test_database,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     conversation_id = UUID(int=200)
 
     async with test_database.session_factory() as session:
@@ -100,7 +100,7 @@ async def test_list_messages_returns_empty_list_for_existing_empty_conversation(
 async def test_list_messages_returns_not_found_for_missing_conversation(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.get(f"/api/conversations/{UUID(int=300)}/messages")
 
@@ -114,7 +114,7 @@ async def test_list_messages_hides_other_users_conversation(
     user_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     owner = await user_factory(username="owner")
     conversation_id = UUID(int=400)
 

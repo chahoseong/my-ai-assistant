@@ -7,16 +7,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-import app.dependencies
+import app.database.dependencies
 import app.main
-from app.observability import (
+from app.observability.logging import configure_observability, get_logger
+from app.observability.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
     METRICS,
-    configure_observability,
-    get_logger,
 )
-from app.security import hash_password
+from app.auth.security import hash_password
 
 
 class SuccessfulStream:
@@ -119,7 +118,7 @@ async def test_login_and_message_logs_exclude_sensitive_values(
 ) -> None:
     password = "password-secret-7c5a1471"
     message = "message-secret-2a90db8e"
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", SuccessfulAgent())
     await user_factory(
         username="observabilityuser",
@@ -153,7 +152,7 @@ async def test_login_and_message_logs_exclude_sensitive_values(
 async def test_message_request_uses_route_template_for_logs_and_metrics(
     client: AsyncClient, capsys, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     route_template = "/api/conversations/{conversation_id}/messages"
     counter = HTTP_REQUESTS_TOTAL.labels(
         method="GET", path=route_template, status="401"
@@ -256,7 +255,7 @@ async def test_unknown_http_methods_share_fixed_metric_label(
 async def test_signup_failure_correlates_failure_and_access_logs(
     client: AsyncClient, capfd, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     async def fail_commit(_: AsyncSession) -> None:
         raise SQLAlchemyError("controlled signup failure")

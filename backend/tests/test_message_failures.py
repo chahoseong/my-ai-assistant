@@ -7,10 +7,10 @@ from pydantic_ai import ModelMessage
 import pytest
 from sqlalchemy import select
 
-import app.dependencies
+import app.database.dependencies
 import app.main
-from app.models import Conversation, Message
-from app.observability import LLM_STREAM_FAILURES_TOTAL
+from app.database.models import Conversation, Message
+from app.observability.metrics import LLM_STREAM_FAILURES_TOTAL
 
 
 class FailingStreamResult:
@@ -97,7 +97,7 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
 ) -> None:
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=500)
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     failure_secret = "stream-error-secret-6e2b73f1"
     monkeypatch.setattr(app.main, "agent", FailingAgent(failure_secret))
     before_failure_count = LLM_STREAM_FAILURES_TOTAL._value.get()
@@ -144,7 +144,7 @@ async def test_failed_stream_releases_lock_for_retry(
 ) -> None:
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=501)
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", FailingAgent())
 
     user, client = await create_authenticated_client(

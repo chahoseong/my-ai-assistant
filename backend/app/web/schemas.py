@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.security import normalize_username
+from app.auth.security import normalize_username
 
 
 class SignupRequest(BaseModel):

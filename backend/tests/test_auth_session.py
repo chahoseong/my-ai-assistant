@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from httpx import AsyncClient
 import pytest
 
-import app.dependencies
+import app.database.dependencies
 
 
 async def authenticated_client(client: AsyncClient, user_factory, session_factory):
@@ -21,7 +21,7 @@ async def test_me_returns_public_user_for_valid_session(
     session_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     await authenticated_client(client, user_factory, session_factory)
 
     response = await client.get("/api/auth/me")
@@ -39,7 +39,7 @@ async def test_me_returns_same_401_for_invalid_session_states(
     monkeypatch: pytest.MonkeyPatch,
     token: str | None,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     if token is not None:
         client.cookies.set("assistant_session", token)
 
@@ -53,10 +53,10 @@ async def test_me_returns_same_401_for_invalid_session_states(
 async def test_me_rejects_expired_session(
     client: AsyncClient, test_database, user_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.models import AuthSession
-    from app.security import generate_session_token, hash_session_token
+    from app.database.models import AuthSession
+    from app.auth.security import generate_session_token, hash_session_token
 
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     user = await user_factory(username="alice")
     token = generate_session_token()
     async with test_database.session_factory() as session:
@@ -84,7 +84,7 @@ async def test_logout_is_idempotent_and_revokes_session(
     session_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     token = await authenticated_client(client, user_factory, session_factory)
 
     first_logout = await client.post("/api/auth/logout")

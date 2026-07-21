@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from sqlalchemy.pool import QueuePool
 
-from app.observability import DB_POOL_IN_USE, bind_db_pool_in_use
+from app.observability.metrics import DB_POOL_IN_USE, bind_db_pool_in_use
 
 
 def db_pool_in_use() -> float:
@@ -30,7 +30,7 @@ def test_db_pool_gauge_reads_current_value_from_registered_callback() -> None:
 async def test_create_database_registers_its_pool_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    db = importlib.import_module("app.db")
+    db = importlib.import_module("app.database.core")
     registered_callbacks = []
     monkeypatch.setattr(db, "bind_db_pool_in_use", registered_callbacks.append)
 
@@ -47,7 +47,7 @@ async def test_create_database_registers_its_pool_callback(
 
 @pytest.mark.asyncio
 async def test_create_database_binds_new_session_to_async_engine() -> None:
-    db = importlib.import_module("app.db")
+    db = importlib.import_module("app.database.core")
     database = db.create_database(
         "postgresql+asyncpg://assistant:assistant@db/assistant_dev"
     )

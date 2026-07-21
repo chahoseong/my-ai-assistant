@@ -3,15 +3,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import (
-    CurrentUser,
+from app.auth.dependencies import CurrentUser
+from app.database.dependencies import get_session
+from app.web.dependencies import (
     CurrentUserForUnsafeRequest,
     JsonRequest,
-    get_session,
 )
-from app.models import Conversation
-from app.observability import get_logger
-from app.schemas import ConversationCreate, ConversationResponse
+from app.database.models import Conversation
+from app.observability.logging import get_logger
+from app.web.schemas import ConversationCreate, ConversationResponse
 
 
 router = APIRouter(prefix="/api/conversations")

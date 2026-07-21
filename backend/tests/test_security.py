@@ -2,7 +2,7 @@ import pytest
 
 
 def test_username_is_trimmed_lowercased_and_validated() -> None:
-    from app.security import normalize_username
+    from app.auth.security import normalize_username
 
     assert normalize_username("  Alice_42  ") == "alice_42"
 
@@ -13,7 +13,7 @@ def test_username_is_trimmed_lowercased_and_validated() -> None:
 
 @pytest.mark.asyncio
 async def test_password_hash_round_trip_uses_argon2id() -> None:
-    from app.security import hash_password, verify_password
+    from app.auth.security import hash_password, verify_password
 
     encoded_hash = await hash_password("correct horse battery staple")
 
@@ -24,7 +24,7 @@ async def test_password_hash_round_trip_uses_argon2id() -> None:
 
 @pytest.mark.asyncio
 async def test_wrong_password_returns_false() -> None:
-    from app.security import hash_password, verify_password
+    from app.auth.security import hash_password, verify_password
 
     encoded_hash = await hash_password("correct horse battery staple")
 
@@ -32,7 +32,7 @@ async def test_wrong_password_returns_false() -> None:
 
 
 def test_session_token_has_sufficient_entropy_and_only_hash_is_stable() -> None:
-    from app.security import generate_session_token, hash_session_token
+    from app.auth.security import generate_session_token, hash_session_token
 
     first_token = generate_session_token()
     second_token = generate_session_token()
@@ -47,7 +47,7 @@ def test_session_token_has_sufficient_entropy_and_only_hash_is_stable() -> None:
 
 @pytest.mark.asyncio
 async def test_password_length_is_validated_before_hashing() -> None:
-    from app.security import hash_password
+    from app.auth.security import hash_password
 
     with pytest.raises(ValueError, match="Invalid password"):
         await hash_password("a" * 14)

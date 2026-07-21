@@ -20,7 +20,7 @@ def make_request(headers: dict[str, str]) -> Request:
 
 
 def test_exact_allowed_origin_and_missing_origin_are_allowed() -> None:
-    from app.request_security import require_allowed_origin
+    from app.web.security import require_allowed_origin
 
     settings = AuthSettings(
         app_env="local",
@@ -34,7 +34,7 @@ def test_exact_allowed_origin_and_missing_origin_are_allowed() -> None:
 
 @pytest.mark.parametrize("origin", ["http://localhost:8000.evil", "null"])
 def test_mismatched_and_null_origin_are_rejected(origin: str) -> None:
-    from app.request_security import require_allowed_origin
+    from app.web.security import require_allowed_origin
 
     settings = AuthSettings(
         app_env="local",
@@ -52,7 +52,7 @@ def test_mismatched_and_null_origin_are_rejected(origin: str) -> None:
     "content_type", ["application/json", "application/json; charset=utf-8"]
 )
 def test_json_content_type_is_allowed(content_type: str) -> None:
-    from app.request_security import require_json_content_type
+    from app.web.security import require_json_content_type
 
     require_json_content_type(make_request({"content-type": content_type}))
 
@@ -61,7 +61,7 @@ def test_json_content_type_is_allowed(content_type: str) -> None:
     "content_type", [None, "text/plain", "application/x-www-form-urlencoded"]
 )
 def test_non_json_content_type_is_rejected(content_type: str | None) -> None:
-    from app.request_security import require_json_content_type
+    from app.web.security import require_json_content_type
 
     headers = {} if content_type is None else {"content-type": content_type}
 

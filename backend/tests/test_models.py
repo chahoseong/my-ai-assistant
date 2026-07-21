@@ -7,7 +7,7 @@ def _foreign_key_ondelete(table, column_name: str) -> str | None:
 
 
 def test_message_metadata_declares_conversation_history_contract() -> None:
-    models = importlib.import_module("app.models")
+    models = importlib.import_module("app.database.models")
 
     conversations = models.Conversation.__table__
     messages = models.Message.__table__
@@ -26,7 +26,7 @@ def test_message_metadata_declares_conversation_history_contract() -> None:
 
 
 def test_authentication_metadata_declares_ownership_and_session_contract() -> None:
-    models = importlib.import_module("app.models")
+    models = importlib.import_module("app.database.models")
 
     users = models.User.__table__
     sessions = models.AuthSession.__table__

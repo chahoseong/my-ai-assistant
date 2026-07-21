@@ -4,15 +4,15 @@ from httpx import AsyncClient
 import pytest
 from sqlalchemy import select
 
-import app.dependencies
-from app.models import User
+import app.database.dependencies
+from app.database.models import User
 
 
 @pytest.mark.asyncio
 async def test_signup_normalizes_username_and_does_not_expose_password_hash(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/auth/signup",
@@ -39,7 +39,7 @@ async def test_signup_rejects_password_outside_allowed_length(
     monkeypatch: pytest.MonkeyPatch,
     password: str,
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/auth/signup",
@@ -53,7 +53,7 @@ async def test_signup_rejects_password_outside_allowed_length(
 async def test_signup_returns_conflict_for_duplicate_username(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     payload = {"username": "alice", "password": "correct horse battery staple"}
 
     first_response = await client.post("/api/auth/signup", json=payload)
@@ -67,7 +67,7 @@ async def test_signup_returns_conflict_for_duplicate_username(
 async def test_concurrent_duplicate_signups_allow_only_one_success(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     payload = {
         "username": "concurrent_user",
         "password": "correct horse battery staple",
@@ -85,7 +85,7 @@ async def test_concurrent_duplicate_signups_allow_only_one_success(
 async def test_signup_rejects_disallowed_origin_before_creating_user(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/auth/signup",
@@ -100,7 +100,7 @@ async def test_signup_rejects_disallowed_origin_before_creating_user(
 async def test_signup_rejects_non_json_content_type(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
 
     response = await client.post(
         "/api/auth/signup",

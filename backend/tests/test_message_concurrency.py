@@ -7,16 +7,16 @@ from pydantic_ai import ModelMessage
 import pytest
 from starlette.types import Message, Scope
 
-import app.dependencies
+import app.database.dependencies
 import app.main
 import app.routers.chat as chat_router
 from app.concurrency import release_conversation, try_acquire_conversation
-from app.models import Conversation
-from app.observability import (
+from app.database.models import Conversation
+from app.observability.metrics import (
     CONVERSATION_LOCK_CONFLICTS_TOTAL,
     LLM_STREAM_FAILURES_TOTAL,
 )
-from app.schemas import ConversationMessageCreate
+from app.web.schemas import ConversationMessageCreate
 
 
 class BlockingStreamResult:
@@ -113,7 +113,7 @@ async def test_same_conversation_is_rejected_without_waiting(
     transport = ASGITransport(app=app.main.app)
     conversation_id = UUID(int=600)
     agent = BlockingAgent()
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
     user, client = await create_authenticated_client(
@@ -163,7 +163,7 @@ async def test_different_conversations_can_stream_together(
     first_id = UUID(int=601)
     second_id = UUID(int=602)
     agent = BlockingAgent(expected_started=2)
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
     user, client = await create_authenticated_client(
@@ -201,7 +201,7 @@ async def test_cancelled_stream_releases_lock_for_next_request(
     conversation_id = UUID(int=603)
     agent = CancelThenSuccessAgent()
     before_failure_count = LLM_STREAM_FAILURES_TOTAL._value.get()
-    monkeypatch.setattr(app.dependencies, "database", test_database)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
     monkeypatch.setattr(app.main, "agent", agent)
 
     user, client = await create_authenticated_client(

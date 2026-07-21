@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import QueuePool
 
-from app.observability import bind_db_pool_in_use
+from app.observability.metrics import bind_db_pool_in_use
 
 
 @dataclass

@@ -13,7 +13,7 @@ from pydantic_ai import (
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from app.models import Message
+from app.database.models import Message
 
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it-qat-q4_0-gguf"

@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.models import Base
+from app.database.models import Base
 
 
 config = context.config

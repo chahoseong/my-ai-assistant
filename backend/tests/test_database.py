@@ -4,8 +4,8 @@ from sqlalchemy import func, select
 
 import pytest
 
-from app.models import AuthSession, Conversation, Message, User
-from app.test_db_safety import truncate_test_database
+from app.database.models import AuthSession, Conversation, Message, User
+from tests.support.database_safety import truncate_test_database
 
 
 @pytest.mark.asyncio

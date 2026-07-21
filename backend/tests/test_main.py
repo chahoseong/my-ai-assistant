@@ -5,7 +5,7 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 from fastapi.testclient import TestClient
 
-import app.dependencies
+import app.database.dependencies
 import app.main
 
 
@@ -42,11 +42,24 @@ def test_application_exposes_fastapi_app() -> None:
     assert isinstance(app.main.app, FastAPI)
 
 
+def test_create_app_returns_independent_configured_instances() -> None:
+    first_app = app.main.create_app()
+    second_app = app.main.create_app()
+
+    assert isinstance(first_app, FastAPI)
+    assert first_app is not second_app
+    assert {
+        "/api/auth/signup",
+        "/api/conversations",
+    } <= first_app.openapi()["paths"].keys()
+    assert any(getattr(route, "path", None) == "/metrics" for route in first_app.routes)
+
+
 def test_application_startup_requires_database_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setattr(app.dependencies, "database", None)
+    monkeypatch.setattr(app.database.dependencies, "database", None)
 
     with pytest.raises(ValueError, match="DATABASE_URL must be set"):
         with TestClient(app.main.app):
