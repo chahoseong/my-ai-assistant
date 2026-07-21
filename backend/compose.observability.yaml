@@ -1,4 +1,18 @@
 services:
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: postgres:5432/assistant_dev?sslmode=disable
+      DATA_SOURCE_USER: postgres_exporter
+      DATA_SOURCE_PASS: ${POSTGRES_EXPORTER_PASSWORD:?Set POSTGRES_EXPORTER_PASSWORD in backend/.env or the shell environment}
+    command:
+      - --config.file=/etc/postgres-exporter/postgres_exporter.yml
+    volumes:
+      - ./postgres-exporter/postgres_exporter.yml:/etc/postgres-exporter/postgres_exporter.yml:ro
+
   prometheus:
     image: prom/prometheus:v3.13.0
     ports:
