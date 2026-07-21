@@ -8,6 +8,7 @@ set -euo pipefail
 psql -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
   --dbname "$POSTGRES_DB" \
+  --set=dbname="$POSTGRES_DB" \
   --set=exporter_password="$POSTGRES_EXPORTER_PASSWORD" <<'SQL'
 SELECT format(
   'CREATE ROLE %I LOGIN PASSWORD %L',
@@ -29,5 +30,5 @@ ALTER ROLE postgres_exporter WITH
   PASSWORD :'exporter_password';
 
 GRANT pg_monitor TO postgres_exporter;
-GRANT CONNECT ON DATABASE assistant_dev TO postgres_exporter;
+GRANT CONNECT ON DATABASE :"dbname" TO postgres_exporter;
 SQL
