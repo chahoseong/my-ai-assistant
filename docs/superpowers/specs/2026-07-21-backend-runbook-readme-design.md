@@ -10,7 +10,6 @@
 - FastAPI, PostgreSQL, Prometheus, Grafana, `llama-server`의 로컬 실행 절차
 - 최초 설정과 일상적인 빠른 실행의 분리
 - 서비스별 정상 상태 확인 주소와 기대 결과
-- 최소한의 상태 확인 및 증상별 진단 명령
 
 ## 범위 밖
 
@@ -52,29 +51,8 @@ LLM 서버가 먼저 준비되도록 한다.
 세션에 안전하게 환경 변수를 넣는 공통 코드 블록을 제공한다. Compose는 같은
 디렉터리의 `.env`를 자체적으로 읽는다는 점도 구분해서 설명한다.
 
-### Status and diagnostics
-
-일상적인 확인과 대표 증상 진단만 다룬다.
-
-- `docker compose ps`와 `docker compose logs <service>`
-- `uv run alembic current`
-- API에 접속할 수 없음: FastAPI 프로세스와 OpenAPI URL 확인
-- Prometheus target이 `DOWN`: FastAPI 실행 여부 및 Prometheus 로그 확인
-- Grafana에 데이터가 없음: Prometheus target과 수집 대기 시간 확인
-- LLM 연결 실패: `llama-server` 실행, `LLM_BASE_URL`, `LLM_MODEL_NAME` 확인
-
-각 항목은 증상, 확인 명령 또는 URL, 다음 조치 순서로 짧게 쓴다. 데이터 삭제,
-볼륨 제거, 프로덕션 설정 변경처럼 되돌리기 어려운 명령은 포함하지 않는다.
-
-### Reference
-
-각 서비스의 역할과 로컬 주소를 한 표에 정리한다.
-
-| 서비스 | 역할 | 주소 |
-| --- | --- | --- |
-| FastAPI | 애플리케이션 API | `http://127.0.0.1:8001` |
-| Prometheus | 메트릭 수집·조회 | `http://127.0.0.1:9090` |
-| Grafana | 대시보드 | `http://127.0.0.1:3000` |
+상태 확인 주소와 기대 결과는 `Quick start`의 마지막 단계에 바로 둔다. 사용자가
+실행 직후 확인할 수 있고, 별도 참조 표나 진단 절차를 찾아 이동할 필요가 없다.
 
 ## 명령 및 검증 기준
 
@@ -91,5 +69,5 @@ LLM 서버가 먼저 준비되도록 한다.
 - 처음 온 개발자가 `Setup`만 따라 `.env`, 의존성, 데이터베이스 스키마를 준비할 수 있다.
 - 설정을 마친 개발자가 `Quick start`만 따라 다섯 서비스를 실행하고 세 관측 화면을
   확인할 수 있다.
-- 대표적인 네 가지 장애 증상에서 다음 확인 명령 또는 URL을 바로 찾을 수 있다.
-- README에 Bash 전용 문법, 테스트·품질 규칙, 오래된 별도 Compose 실행 절차가 없다.
+- README에는 `Quick start`와 `Setup`만 있고, Bash 전용 문법, 테스트·품질 규칙,
+  오래된 별도 Compose 실행 절차가 없다.
