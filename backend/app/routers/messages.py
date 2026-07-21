@@ -5,10 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import CurrentUser, get_session
-from app.models import Conversation, Message
-from app.observability import get_logger
-from app.schemas import MessageResponse
+from app.auth.dependencies import CurrentUser
+from app.database.dependencies import get_session
+from app.database.models import Conversation, Message
+from app.observability.logging import get_logger
+from app.web.schemas import MessageResponse
 
 
 router = APIRouter(prefix="/api/conversations")

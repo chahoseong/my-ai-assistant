@@ -13,7 +13,7 @@ from pydantic_ai import (
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from app.models import Message
+from app.database.models import Message
 
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it-qat-q4_0-gguf"
@@ -31,9 +31,9 @@ class LlamaSettings:
 def load_llama_settings(env: Mapping[str, str] | None = None) -> LlamaSettings:
     environment = os.environ if env is None else env
     return LlamaSettings(
-        model=environment.get("LLAMA_MODEL", DEFAULT_MODEL),
-        base_url=environment.get("LLAMA_BASE_URL", DEFAULT_BASE_URL),
-        api_key=environment.get("LLAMA_API_KEY", DEFAULT_API_KEY),
+        model=environment.get("LLM_MODEL_NAME", DEFAULT_MODEL),
+        base_url=environment.get("LLM_BASE_URL", DEFAULT_BASE_URL),
+        api_key=environment.get("LLM_API_KEY", DEFAULT_API_KEY),
     )
 
 

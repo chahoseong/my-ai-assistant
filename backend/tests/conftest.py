@@ -11,10 +11,10 @@ import pytest
 import pytest_asyncio
 
 import app.main
-from app.db import Database, create_database
-from app.models import AuthSession, Conversation, User
-from app.security import generate_session_token, hash_session_token
-from app.test_db_safety import (
+from app.database.core import Database, create_database
+from app.database.models import AuthSession, Conversation, User
+from app.auth.security import generate_session_token, hash_session_token
+from tests.support.database_safety import (
     truncate_test_database,
     validate_test_database_identity,
     validate_test_database_url,

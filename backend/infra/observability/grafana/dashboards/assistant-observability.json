@@ -1,0 +1,44 @@
+{
+  "uid": "assistant-observability",
+  "title": "Assistant Observability",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"id":16,"type":"text","title":"Dashboard guide","gridPos":{"x":0,"y":0,"w":24,"h":4},"options":{"mode":"markdown","content":"**p95**는 요청 100건을 빠른 순서로 나열했을 때 95번째 요청이 걸린 시간입니다. p95가 3초라면 요청 100건 중 약 95건은 3초 안에 끝났고, 약 5건은 더 오래 걸렸다는 뜻입니다."}},
+    {"id":1,"type":"row","title":"Service","gridPos":{"x":0,"y":4,"w":24,"h":1}},
+    {"id":2,"type":"stat","title":"Monitoring status","description":"애플리케이션과 데이터베이스의 관측 데이터를 받을 수 있는 상태입니다. `1`은 모두 수집 가능, `0`은 하나 이상 수집 불가를 뜻합니다.","gridPos":{"x":0,"y":5,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"min(up{job=~\"my-ai-assistant|postgres\"})"}],"fieldConfig":{"defaults":{"unit":"none"}}},
+    {"id":3,"type":"timeseries","title":"Request rate","description":"서비스가 받는 HTTP API 요청의 초당 평균 수입니다.","gridPos":{"x":6,"y":5,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"sum(rate(http_requests_total{job=\"my-ai-assistant\"}[5m])) or vector(0)"}],"fieldConfig":{"defaults":{"unit":"reqps"}}},
+    {"id":4,"type":"timeseries","title":"Error rate","description":"서버 오류(5xx)로 끝난 HTTP API 요청의 비율입니다.","gridPos":{"x":12,"y":5,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"(100 * sum(rate(http_requests_total{job=\"my-ai-assistant\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"my-ai-assistant\"}[5m])), 1e-9)) or vector(0)"}],"fieldConfig":{"defaults":{"unit":"percent"}}},
+    {"id":5,"type":"timeseries","title":"HTTP request duration p95","description":"스트리밍 메시지를 제외한 HTTP API 요청이 완료되기까지 걸린 시간입니다.","gridPos":{"x":18,"y":5,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"my-ai-assistant\",path!=\"/api/conversations/{conversation_id}/messages\"}[5m])))"}],"fieldConfig":{"defaults":{"unit":"s"}}},
+    {"id":6,"type":"row","title":"Model","gridPos":{"x":0,"y":13,"w":24,"h":1}},
+    {"id":7,"type":"timeseries","title":"Model response start time p95","description":"모델이 요청을 받은 뒤 답변을 시작하기까지 걸린 시간입니다.","gridPos":{"x":0,"y":14,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"histogram_quantile(0.95, sum by (le) (rate(llm_first_token_seconds_bucket{job=\"my-ai-assistant\"}[5m])))"}],"fieldConfig":{"defaults":{"unit":"s"}}},
+    {"id":8,"type":"timeseries","title":"Model response completion time p95","description":"모델이 요청을 받은 뒤 답변을 완료하기까지 걸린 시간입니다.","gridPos":{"x":6,"y":14,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"histogram_quantile(0.95, sum by (le) (rate(llm_stream_duration_seconds_bucket{job=\"my-ai-assistant\"}[5m])))"}],"fieldConfig":{"defaults":{"unit":"s"}}},
+    {"id":9,"type":"timeseries","title":"Model response failure rate","description":"모델이 요청을 처리하는 동안 실패한 횟수입니다.","gridPos":{"x":12,"y":14,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"sum(rate(llm_stream_failures_total{job=\"my-ai-assistant\"}[5m]))"}],"fieldConfig":{"defaults":{"unit":"ops"}}},
+    {"id":11,"type":"row","title":"Database","gridPos":{"x":0,"y":22,"w":24,"h":1}},
+    {"id":12,"type":"stat","title":"DB pool in use","description":"애플리케이션이 현재 사용 중인 DB 연결 수입니다.","gridPos":{"x":0,"y":23,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"db_pool_in_use{job=\"my-ai-assistant\"}"}],"fieldConfig":{"defaults":{"unit":"none"}}},
+    {"id":13,"type":"timeseries","title":"Lock conflict rate","description":"같은 대화에 쓰기 요청이 동시에 들어와 거절된 횟수입니다.","gridPos":{"x":6,"y":23,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"sum(rate(conversation_lock_conflicts_total{job=\"my-ai-assistant\"}[5m]))"}],"fieldConfig":{"defaults":{"unit":"ops"}}},
+    {"id":14,"type":"stat","title":"PostgreSQL connections","description":"선택한 PostgreSQL 데이터베이스에 현재 열려 있는 연결 수입니다.","gridPos":{"x":12,"y":23,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"sum(pg_stat_database_numbackends{job=\"postgres\",datname=~\"$database\"})"}],"fieldConfig":{"defaults":{"unit":"none"}}},
+    {"id":15,"type":"timeseries","title":"PostgreSQL cache hit ratio","description":"PostgreSQL이 데이터를 읽을 때 메모리 캐시에서 찾은 비율입니다.","gridPos":{"x":18,"y":23,"w":6,"h":8},"datasource":{"uid":"prometheus","type":"prometheus"},"targets":[{"refId":"A","expr":"100 * sum(rate(pg_stat_database_blks_hit{job=\"postgres\",datname=~\"$database\"}[5m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{job=\"postgres\",datname=~\"$database\"}[5m])) + sum(rate(pg_stat_database_blks_read{job=\"postgres\",datname=~\"$database\"}[5m])), 1e-9)"}],"fieldConfig":{"defaults":{"unit":"percent"}}}
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "database",
+        "label": "Database",
+        "type": "query",
+        "datasource": {"uid": "prometheus", "type": "prometheus"},
+        "definition": "label_values(pg_stat_database_numbackends{job=\"postgres\"}, datname)",
+        "query": {"qry": "label_values(pg_stat_database_numbackends{job=\"postgres\"}, datname)", "refId": "StandardVariableQuery"},
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {"text": "All", "value": "$__all"},
+        "options": [],
+        "refresh": 1,
+        "hide": 0
+      }
+    ]
+  }
+}

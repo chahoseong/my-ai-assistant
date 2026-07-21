@@ -1,8 +1,12 @@
+include:
+  - compose.observability.yaml
+
 services:
   postgres:
     image: postgres:18.4
     environment:
       POSTGRES_DB: assistant_dev
+      POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD:?Set POSTGRES_EXPORTER_PASSWORD in backend/.env or the shell environment}
       POSTGRES_PASSWORD: assistant
       POSTGRES_USER: assistant
     healthcheck:
@@ -14,7 +18,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/database/postgres/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   postgres_data:
