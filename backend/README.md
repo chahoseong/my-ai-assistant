@@ -13,9 +13,9 @@ stored in PostgreSQL, and assistant text is delivered as an SSE stream.
 The default model configuration is:
 
 ```text
-LLAMA_MODEL=google/gemma-4-E4B-it-qat-q4_0-gguf
-LLAMA_BASE_URL=http://127.0.0.1:8080/v1
-LLAMA_API_KEY=llama.cpp
+LLM_MODEL_NAME=google/gemma-4-E4B-it-qat-q4_0-gguf
+LLM_BASE_URL=http://127.0.0.1:8080/v1
+LLM_API_KEY=llama.cpp
 ```
 
 ## Install
@@ -143,10 +143,10 @@ For browser-originated unsafe requests, include an allowed `Origin` header.
 In a separate terminal, start the OpenAI-compatible local model server:
 
 ```powershell
-llama-server -m "path\to\gemma-4-E4B_q4_0-it.gguf" --port 8080
+llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080
 ```
 
-Override `LLAMA_MODEL`, `LLAMA_BASE_URL`, or `LLAMA_API_KEY` before starting
+Override `LLM_MODEL_NAME`, `LLM_BASE_URL`, or `LLM_API_KEY` before starting
 FastAPI when using a different model server.
 
 ### FastAPI

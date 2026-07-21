@@ -21,9 +21,9 @@ def test_load_llama_settings_uses_documented_defaults() -> None:
 def test_load_llama_settings_allows_environment_overrides() -> None:
     settings = app.main.load_llama_settings(
         {
-            "LLAMA_MODEL": "test-model",
-            "LLAMA_BASE_URL": "http://llama.example/v1",
-            "LLAMA_API_KEY": "test-key",
+            "LLM_MODEL_NAME": "test-model",
+            "LLM_BASE_URL": "http://llama.example/v1",
+            "LLM_API_KEY": "test-key",
         }
     )
 

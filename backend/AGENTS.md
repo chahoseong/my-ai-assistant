@@ -19,7 +19,7 @@
 ## Commands
 
 - `uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log` - Start the FastAPI development server.
-- `llama-server -m $env:LLAMA_MODEL_PATH --port 8080` - Start the local LLM server.
+- `llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080` - Start the local LLM server.
 - `docker compose ps` - Show local service status.
 - `docker compose logs <service>` - Show service logs.
 - `uv run alembic current` - Show the current database revision.
