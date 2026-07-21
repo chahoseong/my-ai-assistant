@@ -19,3 +19,10 @@ def test_documented_server_commands_disable_uvicorn_access_logs() -> None:
     assert "## Setup" in readme
     assert "## Status and diagnostics" not in readme
     assert "## Reference" not in readme
+    assert "dotenvx run -- uv run uvicorn app.main:app" in readme
+    assert (
+        "dotenvx run -- powershell -NoProfile -Command "
+        "'llama-server -m $env:LLAMA_MODEL_PATH "
+        "--alias $env:LLM_MODEL_NAME --port 8080'"
+    ) in readme
+    assert "$envLines = Get-Content .env" not in readme

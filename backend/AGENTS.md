@@ -6,6 +6,7 @@
 
 - Python 3.14
 - `uv`
+- `dotenvx`
 - Docker Desktop with Docker Compose
 - `llama-server` with a compatible GGUF model
 
@@ -13,29 +14,28 @@
 
 - `uv sync` - Sync dependencies.
 - `docker compose up -d` - Start local services.
-- `$envLines = Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' }; foreach ($envLine in $envLines) { $parts = $envLine -split '=', 2; Set-Item -Path ("Env:" + $parts[0]) -Value $parts[1] }` - Load `.env` into the current PowerShell session.
-- `uv run alembic upgrade head` - Apply database migrations.
+- `dotenvx run -- uv run alembic upgrade head` - Apply database migrations.
 
 ## Commands
 
-- `uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log` - Start the FastAPI development server.
-- `llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080` - Start the local LLM server.
+- `dotenvx run -- uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log` - Start the FastAPI development server.
+- `dotenvx run -- powershell -NoProfile -Command 'llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080'` - Start the local LLM server.
 - `docker compose ps` - Show local service status.
 - `docker compose logs <service>` - Show service logs.
-- `uv run alembic current` - Show the current database revision.
-- `uv run alembic revision --autogenerate -m "<description>"` - Generate a database migration.
-- `uv run ruff format --check app tests` - Check formatting.
-- `uv run ruff check app tests` - Run lint checks.
-- `uv run pyright` - Run type checks.
+- `dotenvx run -- uv run alembic current` - Show the current database revision.
+- `dotenvx run -- uv run alembic revision --autogenerate -m "<description>"` - Generate a database migration.
+- `dotenvx run -- uv run ruff format --check app tests` - Check formatting.
+- `dotenvx run -- uv run ruff check app tests` - Run lint checks.
+- `dotenvx run -- uv run pyright` - Run type checks.
 
 ## Testing
 
 ### Commands
 
-- `uv run pytest` - Run all tests.
-- `uv run pytest -m unit` - Run unit tests.
-- `uv run pytest -m integration` - Run integration tests.
-- `uv run pytest -m contract` - Run contract tests.
+- `dotenvx run -- uv run pytest` - Run all tests.
+- `dotenvx run -- uv run pytest -m unit` - Run unit tests.
+- `dotenvx run -- uv run pytest -m integration` - Run integration tests.
+- `dotenvx run -- uv run pytest -m contract` - Run contract tests.
 
 ### Requirements
 

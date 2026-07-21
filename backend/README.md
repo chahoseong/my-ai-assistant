@@ -17,12 +17,7 @@ docker compose up -d
 새 PowerShell 창에서 다음을 실행합니다.
 
 ```powershell
-$envLines = Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' }
-foreach ($envLine in $envLines) {
-  $parts = $envLine -split '=', 2
-  Set-Item -Path ("Env:" + $parts[0]) -Value $parts[1]
-}
-llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080
+dotenvx run -- powershell -NoProfile -Command 'llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080'
 ```
 
 ### 3. FastAPI를 시작합니다
@@ -30,14 +25,7 @@ llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080
 별도 PowerShell 창에서 다음을 실행합니다.
 
 ```powershell
-$envLines = Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' }
-foreach ($envLine in $envLines) {
-  $parts = $envLine -split '=', 2
-  Set-Item -Path ("Env:" + $parts[0]) -Value $parts[1]
-}
-$env:PYTHONUTF8 = "1"
-$env:PYTHONIOENCODING = "utf-8"
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
+dotenvx run -- uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-log
 ```
 
 ### 4. 전체 스택을 확인합니다
@@ -53,6 +41,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --no-access-lo
 
 - Python 3.14
 - `uv`
+- `dotenvx`
 - Docker Desktop with Docker Compose
 - `llama-server`와 호환되는 GGUF 모델
 
@@ -68,23 +57,24 @@ Copy-Item .env.example .env
 `POSTGRES_EXPORTER_PASSWORD`에 로컬 PostgreSQL exporter용 비밀번호를 설정합니다.
 실제 비밀번호는 커밋하지 않습니다.
 
-### 2. Python 의존성을 설치합니다
+### 2. dotenvx를 설치합니다
+
+```powershell
+winget install dotenvx
+```
+
+### 3. Python 의존성을 설치합니다
 
 ```powershell
 uv sync
 ```
 
-### 3. 데이터베이스 스키마를 적용합니다
+### 4. 데이터베이스 스키마를 적용합니다
 
 ```powershell
 docker compose up -d
-$envLines = Get-Content .env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' }
-foreach ($envLine in $envLines) {
-  $parts = $envLine -split '=', 2
-  Set-Item -Path ("Env:" + $parts[0]) -Value $parts[1]
-}
-uv run alembic upgrade head
+dotenvx run -- uv run alembic upgrade head
 ```
 
-Docker Compose는 현재 디렉터리의 `.env`를 자동으로 읽습니다. 반면 호스트에서 실행하는
-`llama-server`와 FastAPI는 각 PowerShell 세션에서 위 환경 변수 로드 절차를 실행해야 합니다.
+Docker Compose는 현재 디렉터리의 `.env`를 자동으로 읽습니다. 호스트에서 실행하는
+FastAPI와 `llama-server`는 `dotenvx run --`이 `.env`를 각 프로세스에 주입합니다.
