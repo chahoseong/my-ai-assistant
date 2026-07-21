@@ -1,4 +1,5 @@
 import json
+from typing import cast
 from uuid import UUID
 
 from httpx import AsyncClient
@@ -11,10 +12,14 @@ import structlog
 
 import app.database.dependencies
 import app.main
+from app.routers import chat as chat_router
+from app.concurrency import ConversationLease
+from app.database.core import Database
 from app.observability.logging import configure_observability, get_logger
 from app.observability.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
+    LLM_FIRST_TOKEN_SECONDS,
     METRICS,
 )
 from app.auth.security import hash_password
@@ -38,6 +43,30 @@ class SuccessfulStream:
 class SuccessfulAgent:
     def run_stream(self, *_: object, **__: object) -> SuccessfulStream:
         return SuccessfulStream()
+
+
+class RecordingSession:
+    def add(self, _: object) -> None:
+        return None
+
+    async def commit(self) -> None:
+        return None
+
+    async def __aenter__(self) -> "RecordingSession":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+class RecordingDatabase:
+    def session_factory(self) -> RecordingSession:
+        return RecordingSession()
+
+
+class RecordingLease:
+    async def release(self) -> None:
+        return None
 
 
 def metric_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
@@ -72,6 +101,33 @@ def test_configured_logger_writes_json_with_bound_request_id(capsys) -> None:
     assert payload["level"] == "info"
 
 
+@pytest.mark.asyncio
+async def test_stream_logs_exact_ttft_without_prompt_content(monkeypatch, capsys) -> None:
+    structlog.reset_defaults()
+    configure_observability()
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id="request-ttft")
+    monkeypatch.setattr(chat_router, "get_stream_agent", SuccessfulAgent)
+    prompt = "prompt-must-not-appear-in-ttft-log"
+
+    _ = [
+        event
+        async for event in chat_router.stream_persisted_message(
+            cast(Database, RecordingDatabase()),
+            UUID(int=1),
+            prompt,
+            [],
+            cast(ConversationLease, RecordingLease()),
+        )
+    ]
+
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    [ttft_log] = [record for record in records if record["event"] == "llm_first_token"]
+    assert ttft_log["ttft_ms"] >= 0
+    assert ttft_log["request_id"] == "request-ttft"
+    assert prompt not in json.dumps(ttft_log)
+
+
 def test_metrics_match_the_issue_contract() -> None:
     assert set(METRICS) == {
         "http_requests_total",
@@ -93,6 +149,17 @@ def test_metrics_match_the_issue_contract() -> None:
         "conversation_lock_conflicts_total": (),
         "db_pool_in_use": (),
     }
+
+
+def test_ttft_histogram_has_buckets_above_ten_seconds() -> None:
+    bounds = {
+        sample.labels["le"]
+        for family in LLM_FIRST_TOKEN_SECONDS.collect()
+        for sample in family.samples
+        if sample.name == "llm_first_token_seconds_bucket"
+    }
+
+    assert {"10.0", "12.5", "15.0", "20.0", "30.0", "45.0", "60.0"} <= bounds
 
 
 @pytest.mark.asyncio
@@ -151,6 +218,34 @@ async def test_login_and_message_logs_exclude_sensitive_values(
     captured_logs = capfd.readouterr().out
     for sensitive_value in (password, raw_token, message):
         assert sensitive_value not in captured_logs
+
+
+@pytest.mark.asyncio
+async def test_message_stream_logs_exact_ttft_without_message_content(
+    client: AsyncClient, test_database, user_factory, session_factory, monkeypatch, capfd
+) -> None:
+    user = await user_factory(username="ttft-log-user")
+    _, token = await session_factory(user=user)
+    client.cookies.set("assistant_session", token)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", SuccessfulAgent())
+    prompt = "prompt-must-not-appear-in-ttft-log"
+    capfd.readouterr()
+
+    conversation = await client.post("/api/conversations", json={})
+    response = await client.post(
+        f"/api/conversations/{conversation.json()['id']}/messages",
+        json={"message": prompt},
+    )
+
+    assert response.status_code == 200
+    records = [
+        json.loads(line) for line in capfd.readouterr().out.splitlines() if line
+    ]
+    [ttft_log] = [record for record in records if record["event"] == "llm_first_token"]
+    assert ttft_log["ttft_ms"] >= 0
+    UUID(ttft_log["request_id"])
+    assert prompt not in json.dumps(ttft_log)
 
 
 @pytest.mark.asyncio

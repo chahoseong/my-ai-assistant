@@ -17,6 +17,28 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
 LLM_FIRST_TOKEN_SECONDS = Histogram(
     "llm_first_token_seconds",
     "Time from LLM invocation to the first stream delta in seconds.",
+    buckets=(
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0,
+        12.5,
+        15.0,
+        20.0,
+        30.0,
+        45.0,
+        60.0,
+    ),
 )
 LLM_STREAM_DURATION_SECONDS = Histogram(
     "llm_stream_duration_seconds",
