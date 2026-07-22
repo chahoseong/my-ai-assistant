@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError, listMessages } from '../lib/api'
 import { streamMessage } from '../lib/sse'
-import type { ConversationView, Message } from '../lib/types'
+import type { ConversationView, Message, ResponseUsage } from '../lib/types'
 import './ChatView.css'
 
 type DisplayMessage = Message | { id: string; role: 'assistant'; content: string; created_at: string }
@@ -12,7 +12,27 @@ type StreamSession = {
   completed: boolean
 }
 
+type ResponsePerformance = {
+  usage: ResponseUsage
+  ttftMs: number | null
+  generationTokensPerSecond: number | null
+}
+
 const titleFrom = (message: string) => Array.from(message).slice(0, 30).join('')
+const formatInteger = (value: number) => value.toLocaleString('ko-KR')
+
+function formatContextUsage(usage: ResponseUsage): string {
+  if (usage.context_limit === null) return '—'
+  const used = usage.input_tokens + usage.output_tokens
+  const percent = Math.round((used / usage.context_limit) * 100)
+  return `${formatInteger(used)} / ${formatInteger(usage.context_limit)} (${percent}%)`
+}
+
+const formatTtft = (value: number | null) =>
+  value === null ? '—' : `${Math.round(value).toLocaleString('ko-KR')} ms`
+
+const formatGenerationSpeed = (value: number | null) =>
+  value === null ? '—' : `${value.toFixed(1)} tok/s`
 
 function previewForCreatedConversation(session: StreamSession): DisplayMessage[] {
   return session.completed ? [session.userMessage] : [session.userMessage, session.assistantMessage]
@@ -30,6 +50,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [responsePerformance, setResponsePerformance] = useState<ResponsePerformance | null>(null)
   const selectedConversationIdRef = useRef<string | null>(conversation?.id ?? null)
   const streamControllersRef = useRef(new Map<string, AbortController>())
   const streamSessionsRef = useRef(new Map<string, StreamSession>())
@@ -41,6 +62,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
   const isStreaming = conversation?.isStreaming ?? false
 
   useEffect(() => {
+    setResponsePerformance(null)
     if (conversationId === null) { setMessages([]); setError(null); setLoading(false); return }
     const session = streamSessionsRef.current.get(conversationId)
     if (conversationStatus === 'created') {
@@ -78,6 +100,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     if (!prompt || isStreaming) return
 
     setError(null)
+    setResponsePerformance(null)
     let activeConversationId = conversation?.id ?? null
     let createdConversationId: string | null = null
     let streamStarted = false
@@ -110,8 +133,11 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       onStreamingChange(activeConversationId, true)
 
       let streamFailed = false
+      const requestStartedAt = performance.now()
+      let firstDeltaAt: number | null = null
       await streamMessage(activeConversationId, prompt, (streamEvent) => {
         if (streamEvent.event === 'data') {
+          firstDeltaAt ??= performance.now()
           session.assistantMessage.content += streamEvent.data
           if (isVisible()) setMessages((current) => current.some((item) => item.id === pendingAssistantId)
             ? current.map((item) => item.id === pendingAssistantId ? { ...item, content: session.assistantMessage.content } : item)
@@ -121,6 +147,20 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
           streamFailed = true
           session.error = streamEvent.data
           if (isVisible()) setError(streamEvent.data)
+        }
+        if (streamEvent.event === 'done') {
+          const completedAt = performance.now()
+          const generationMs = firstDeltaAt === null ? null : completedAt - firstDeltaAt
+          const generationTokensPerSecond = generationMs !== null && generationMs > 0
+            ? streamEvent.data.usage.output_tokens / (generationMs / 1_000)
+            : null
+          if (isVisible()) {
+            setResponsePerformance({
+              usage: streamEvent.data.usage,
+              ttftMs: firstDeltaAt === null ? null : firstDeltaAt - requestStartedAt,
+              generationTokensPerSecond,
+            })
+          }
         }
       }, controller.signal, () => { streamStarted = true })
 
@@ -183,6 +223,15 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       {!loading && messages.length === 0 && <p className="chat-status">무엇을 도와드릴까요?</p>}
       {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '나' : '어시스턴트'}</strong><p>{message.content || (isStreaming ? '응답을 생성하고 있습니다…' : '')}</p></article>)}
     </div>
-    <footer className="composer-area">{error && <p className="chat-error" role="alert">{error}</p>}<form className="chat-composer" onSubmit={(event) => void send(event)}><label htmlFor="message">메시지</label><textarea id="message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="메시지를 입력하세요" maxLength={8000} rows={3} disabled={isStreaming} /><p className="composer-hint">Enter로 전송 · Shift + Enter로 줄바꿈</p><button className="primary-button" disabled={isStreaming || !draft.trim()}>{isStreaming ? '응답 생성 중…' : '보내기'}</button></form></footer>
+    <footer className="composer-area">{responsePerformance && <section className="response-performance" aria-label="최근 응답 사용량 및 성능">
+      <h2>최근 응답</h2>
+      <dl>
+        <div><dt>입력 토큰</dt><dd>{formatInteger(responsePerformance.usage.input_tokens)}</dd></div>
+        <div><dt>출력 토큰</dt><dd>{formatInteger(responsePerformance.usage.output_tokens)}</dd></div>
+        <div><dt>컨텍스트</dt><dd>{formatContextUsage(responsePerformance.usage)}</dd></div>
+        <div><dt>TTFT</dt><dd>{formatTtft(responsePerformance.ttftMs)}</dd></div>
+        <div><dt>생성 속도</dt><dd>{formatGenerationSpeed(responsePerformance.generationTokensPerSecond)}</dd></div>
+      </dl>
+    </section>}{error && <p className="chat-error" role="alert">{error}</p>}<form className="chat-composer" onSubmit={(event) => void send(event)}><label htmlFor="message">메시지</label><textarea id="message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="메시지를 입력하세요" maxLength={8000} rows={3} disabled={isStreaming} /><p className="composer-hint">Enter로 전송 · Shift + Enter로 줄바꿈</p><button className="primary-button" disabled={isStreaming || !draft.trim()}>{isStreaming ? '응답 생성 중…' : '보내기'}</button></form></footer>
   </section>
 }
