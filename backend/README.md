@@ -20,6 +20,11 @@ docker compose up -d
 dotenvx run -- powershell -NoProfile -Command 'llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080'
 ```
 
+백엔드는 첫 응답 완료 시 llama-server의 `GET /props`에서 컨텍스트 한계
+`default_generation_settings.n_ctx`를 lazy 조회하고 프로세스 수명 동안 캐시합니다.
+llama-server를 다른 `-c` 값으로 재시작했다면 캐시를 갱신하기 위해 FastAPI도
+함께 재시작합니다. `/props` 조회가 실패해도 채팅 응답은 계속 동작합니다.
+
 ### 3. FastAPI를 시작합니다
 
 별도 PowerShell 창에서 다음을 실행합니다.
