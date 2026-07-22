@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import app.database.dependencies
 import app.main
+from app.llama import LlamaContextLimitCache
 
 pytestmark = pytest.mark.unit
 
@@ -30,6 +31,10 @@ def test_load_llama_settings_allows_environment_overrides() -> None:
     assert settings.model == "test-model"
     assert settings.base_url == "http://llama.example/v1"
     assert settings.api_key == "test-key"
+
+
+def test_main_composes_a_lazy_context_limit_cache() -> None:
+    assert isinstance(app.main.context_limit_cache, LlamaContextLimitCache)
 
 
 def test_create_app_returns_independent_configured_instances() -> None:

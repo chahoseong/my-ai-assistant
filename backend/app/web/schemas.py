@@ -45,6 +45,16 @@ class ConversationMessageCreate(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
 
 
+class StreamUsagePayload(BaseModel):
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    context_limit: int | None = Field(default=None, gt=0)
+
+
+class StreamDonePayload(BaseModel):
+    usage: StreamUsagePayload
+
+
 class MessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
