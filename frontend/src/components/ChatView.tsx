@@ -135,9 +135,12 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       let streamFailed = false
       const requestStartedAt = performance.now()
       let firstDeltaAt: number | null = null
+      let lastDeltaAt: number | null = null
       await streamMessage(activeConversationId, prompt, (streamEvent) => {
         if (streamEvent.event === 'data') {
-          firstDeltaAt ??= performance.now()
+          const receivedAt = performance.now()
+          firstDeltaAt ??= receivedAt
+          lastDeltaAt = receivedAt
           session.assistantMessage.content += streamEvent.data
           if (isVisible()) setMessages((current) => current.some((item) => item.id === pendingAssistantId)
             ? current.map((item) => item.id === pendingAssistantId ? { ...item, content: session.assistantMessage.content } : item)
@@ -149,8 +152,9 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
           if (isVisible()) setError(streamEvent.data)
         }
         if (streamEvent.event === 'done') {
-          const completedAt = performance.now()
-          const generationMs = firstDeltaAt === null ? null : completedAt - firstDeltaAt
+          const generationMs = firstDeltaAt === null || lastDeltaAt === null
+            ? null
+            : lastDeltaAt - firstDeltaAt
           const generationTokensPerSecond = generationMs !== null && generationMs > 0
             ? streamEvent.data.usage.output_tokens / (generationMs / 1_000)
             : null
