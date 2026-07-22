@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from uuid import UUID
@@ -10,6 +11,7 @@ from pydantic_ai import (
     TextPart,
     UserPromptPart,
 )
+from pydantic_ai.usage import RunUsage
 import pytest
 
 
@@ -41,9 +43,23 @@ def metric_sample_value(metric, sample_name: str) -> float:
     raise AssertionError(f"Missing {sample_name} sample")
 
 
+def event_json(body: str, event_name: str) -> dict[str, object]:
+    normalized = body.replace("\r\n", "\n")
+    for block in normalized.split("\n\n"):
+        lines = block.splitlines()
+        if f"event: {event_name}" not in lines:
+            continue
+        data = "\n".join(
+            line.removeprefix("data: ") for line in lines if line.startswith("data: ")
+        )
+        return json.loads(data)
+    raise AssertionError(f"Missing {event_name} event")
+
+
 class FakeStreamResult:
-    def __init__(self, deltas: Sequence[str]) -> None:
+    def __init__(self, deltas: Sequence[str], usage: RunUsage) -> None:
         self.deltas = deltas
+        self.usage = usage
 
     async def __aenter__(self) -> "FakeStreamResult":
         return self
@@ -58,8 +74,14 @@ class FakeStreamResult:
 
 
 class RecordingAgent:
-    def __init__(self, deltas: Sequence[str]) -> None:
+    def __init__(
+        self,
+        deltas: Sequence[str],
+        *,
+        usage: RunUsage | None = None,
+    ) -> None:
         self.deltas = deltas
+        self.usage = usage or RunUsage()
         self.message: str | None = None
         self.message_history: Sequence[ModelMessage] | None = None
 
@@ -71,7 +93,17 @@ class RecordingAgent:
     ) -> FakeStreamResult:
         self.message = message
         self.message_history = message_history
-        return FakeStreamResult(self.deltas)
+        return FakeStreamResult(self.deltas, self.usage)
+
+
+class StubContextLimitCache:
+    def __init__(self, value: int | None) -> None:
+        self.value = value
+        self.call_count = 0
+
+    async def get_context_limit(self) -> int | None:
+        self.call_count += 1
+        return self.value
 
 
 @pytest.fixture
@@ -98,8 +130,13 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(app.database.dependencies, "database", test_database)
-    fake_agent = RecordingAgent(["Hello", " world"])
+    fake_agent = RecordingAgent(
+        ["Hello", " world"],
+        usage=RunUsage(input_tokens=37, output_tokens=11),
+    )
+    context_limit_cache = StubContextLimitCache(8192)
     monkeypatch.setattr(app.main, "agent", fake_agent)
+    monkeypatch.setattr(app.main, "context_limit_cache", context_limit_cache)
     conversation_id = UUID(int=400)
     before_ttft_count = metric_sample_value(
         LLM_FIRST_TOKEN_SECONDS, "llm_first_token_seconds_count"
@@ -178,7 +215,14 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
         "current question",
         "Hello world",
     ]
-    assert f"data: {stored_messages[-1].id}" in body
+    assert event_json(body, "done") == {
+        "usage": {
+            "input_tokens": 37,
+            "output_tokens": 11,
+            "context_limit": 8192,
+        }
+    }
+    assert context_limit_cache.call_count == 1
     assert (
         metric_sample_value(LLM_FIRST_TOKEN_SECONDS, "llm_first_token_seconds_count")
         == before_ttft_count + 1
@@ -190,6 +234,96 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
         == before_duration_count + 1
     )
     assert LLM_STREAM_DELTAS_TOTAL._value.get() == before_delta_count + 2
+
+
+@pytest.mark.asyncio
+async def test_done_usage_survives_missing_context_limit(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(
+        app.main,
+        "agent",
+        RecordingAgent(
+            ["answer"],
+            usage=RunUsage(input_tokens=9, output_tokens=3),
+        ),
+    )
+    monkeypatch.setattr(
+        app.main,
+        "context_limit_cache",
+        StubContextLimitCache(None),
+    )
+    conversation_id = UUID(int=406)
+
+    async with test_database.session_factory() as session:
+        session.add(
+            Conversation(
+                id=conversation_id,
+                user_id=authenticated_user[0].id,
+            )
+        )
+        await session.commit()
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "question"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "event: error" not in body
+    assert event_json(body, "done") == {
+        "usage": {
+            "input_tokens": 9,
+            "output_tokens": 3,
+            "context_limit": None,
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_duration_excludes_context_limit_lookup(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimedContextLimitCache(StubContextLimitCache):
+        async def get_context_limit(self) -> int | None:
+            chat_router.perf_counter()
+            return await super().get_context_limit()
+
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
+    monkeypatch.setattr(app.main, "context_limit_cache", TimedContextLimitCache(8192))
+    clock_values = iter([10.0, 11.0, 15.0, 50.0])
+    monkeypatch.setattr(chat_router, "perf_counter", lambda: next(clock_values))
+    recorded_durations: list[float] = []
+    monkeypatch.setattr(
+        chat_router,
+        "record_llm_stream_duration",
+        recorded_durations.append,
+    )
+    conversation_id = UUID(int=407)
+
+    async with test_database.session_factory() as session:
+        session.add(Conversation(id=conversation_id, user_id=authenticated_user[0].id))
+        await session.commit()
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "question"},
+    ) as response:
+        await response.aread()
+
+    assert response.status_code == 200
+    assert recorded_durations == [5.0]
 
 
 @pytest.mark.asyncio

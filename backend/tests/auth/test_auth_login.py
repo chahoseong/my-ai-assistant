@@ -15,7 +15,6 @@ from app.auth.security import hash_password, hash_session_token
 pytestmark = pytest.mark.integration
 
 
-
 async def create_login_user(user_factory):
     password = "correct horse battery staple"
     return await user_factory(

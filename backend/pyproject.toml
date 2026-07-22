@@ -8,6 +8,7 @@ dependencies = [
     "argon2-cffi>=25.1,<26",
     "asyncpg>=0.31,<0.32",
     "fastapi[standard]>=0.130,<0.140",
+    "httpx>=0.28,<0.29",
     "pydantic>=2.13,<3",
     "pydantic-ai==2.9.1",
     "prometheus-client>=0.23,<1",
@@ -18,7 +19,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<0.29",
     "pyright>=1.1,<2",
     "pytest>=9.1,<10",
     "pytest-asyncio>=1.4,<2",

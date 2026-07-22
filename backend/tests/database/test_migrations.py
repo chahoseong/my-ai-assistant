@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 pytestmark = pytest.mark.integration
 
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 

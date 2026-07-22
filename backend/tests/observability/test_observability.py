@@ -27,7 +27,6 @@ from app.auth.security import hash_password
 pytestmark = [pytest.mark.integration, pytest.mark.contract]
 
 
-
 class SuccessfulStream:
     async def __aenter__(self) -> "SuccessfulStream":
         return self
@@ -102,7 +101,9 @@ def test_configured_logger_writes_json_with_bound_request_id(capsys) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_logs_exact_ttft_without_prompt_content(monkeypatch, capsys) -> None:
+async def test_stream_logs_exact_ttft_without_prompt_content(
+    monkeypatch, capsys
+) -> None:
     structlog.reset_defaults()
     configure_observability()
     structlog.contextvars.clear_contextvars()
@@ -121,7 +122,9 @@ async def test_stream_logs_exact_ttft_without_prompt_content(monkeypatch, capsys
         )
     ]
 
-    records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    records = [
+        json.loads(line) for line in capsys.readouterr().out.splitlines() if line
+    ]
     [ttft_log] = [record for record in records if record["event"] == "llm_first_token"]
     assert ttft_log["ttft_ms"] >= 0
     assert ttft_log["request_id"] == "request-ttft"
@@ -222,7 +225,12 @@ async def test_login_and_message_logs_exclude_sensitive_values(
 
 @pytest.mark.asyncio
 async def test_message_stream_logs_exact_ttft_without_message_content(
-    client: AsyncClient, test_database, user_factory, session_factory, monkeypatch, capfd
+    client: AsyncClient,
+    test_database,
+    user_factory,
+    session_factory,
+    monkeypatch,
+    capfd,
 ) -> None:
     user = await user_factory(username="ttft-log-user")
     _, token = await session_factory(user=user)
@@ -239,9 +247,7 @@ async def test_message_stream_logs_exact_ttft_without_message_content(
     )
 
     assert response.status_code == 200
-    records = [
-        json.loads(line) for line in capfd.readouterr().out.splitlines() if line
-    ]
+    records = [json.loads(line) for line in capfd.readouterr().out.splitlines() if line]
     [ttft_log] = [record for record in records if record["event"] == "llm_first_token"]
     assert ttft_log["ttft_ms"] >= 0
     UUID(ttft_log["request_id"])

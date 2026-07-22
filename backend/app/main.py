@@ -10,6 +10,7 @@ from app.agent import (
 )
 from app.auth.dependencies import get_auth_settings
 from app.database.dependencies import dispose_database, get_database
+from app.llama import LlamaContextLimitCache
 from app.observability.logging import configure_observability
 from app.observability.metrics import METRICS_PATH
 from app.observability.middleware import RequestObservabilityMiddleware
@@ -43,5 +44,7 @@ def create_app() -> FastAPI:
     return app
 
 
+llama_settings = load_llama_settings()
 app = create_app()
-agent = create_agent(load_llama_settings())
+agent = create_agent(llama_settings)
+context_limit_cache = LlamaContextLimitCache(llama_settings.base_url)

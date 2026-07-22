@@ -7,7 +7,6 @@ import app.main
 pytestmark = pytest.mark.contract
 
 
-
 def test_openapi_authentication_route_inventory_is_stable() -> None:
     paths = app.main.app.openapi()["paths"]
 

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage
+from pydantic_ai.usage import RunUsage
 import pytest
 
 
@@ -15,7 +16,6 @@ from app.database.models import Conversation, Message
 from app.observability.metrics import LLM_STREAM_FAILURES_TOTAL
 
 pytestmark = pytest.mark.integration
-
 
 
 class FailingStreamResult:
@@ -48,6 +48,9 @@ class FailingAgent:
 
 
 class SuccessfulStreamResult:
+    def __init__(self) -> None:
+        self.usage = RunUsage()
+
     async def __aenter__(self) -> "SuccessfulStreamResult":
         return self
 

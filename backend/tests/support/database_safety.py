@@ -40,13 +40,17 @@ async def fetch_database_identity(url: str) -> DatabaseIdentity:
     try:
         async with engine.connect() as connection:
             row = (
-                await connection.execute(
-                    text(
-                        "SELECT current_database() AS database_name, "
-                        "system_identifier FROM pg_control_system()"
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT current_database() AS database_name, "
+                            "system_identifier FROM pg_control_system()"
+                        )
                     )
                 )
-            ).one()._mapping
+                .one()
+                ._mapping
+            )
             return DatabaseIdentity(
                 database_name=str(row["database_name"]),
                 system_identifier=int(row["system_identifier"]),
@@ -69,4 +73,6 @@ async def validate_test_database_identity(database_url: str, test_url: str) -> N
 
 async def truncate_test_database(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE TABLE messages, conversations, sessions, users CASCADE"))
+        await connection.execute(
+            text("TRUNCATE TABLE messages, conversations, sessions, users CASCADE")
+        )
