@@ -6,6 +6,13 @@ export type StreamEvent =
   | { event: 'done'; data: StreamDoneData }
   | { event: 'error'; data: string }
 
+export class InvalidDoneUsageError extends Error {
+  constructor() {
+    super('응답 사용량 형식이 올바르지 않습니다.')
+    this.name = 'InvalidDoneUsageError'
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
@@ -20,11 +27,11 @@ function parseDoneData(data: string): StreamDoneData {
   try {
     body = JSON.parse(data)
   } catch {
-    throw new Error('응답 사용량 형식이 올바르지 않습니다.')
+    throw new InvalidDoneUsageError()
   }
 
   if (!isRecord(body) || !isRecord(body.usage)) {
-    throw new Error('응답 사용량 형식이 올바르지 않습니다.')
+    throw new InvalidDoneUsageError()
   }
 
   const usage = body.usage
@@ -33,7 +40,7 @@ function parseDoneData(data: string): StreamDoneData {
     || !isNonNegativeInteger(usage.output_tokens)
     || !isContextLimit(usage.context_limit)
   ) {
-    throw new Error('응답 사용량 형식이 올바르지 않습니다.')
+    throw new InvalidDoneUsageError()
   }
 
   return {

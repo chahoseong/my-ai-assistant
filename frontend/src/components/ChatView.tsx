@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ApiError, listMessages } from '../lib/api'
-import { streamMessage } from '../lib/sse'
+import { InvalidDoneUsageError, streamMessage } from '../lib/sse'
 import type { ConversationView, Message, ResponseUsage } from '../lib/types'
 import './ChatView.css'
 
@@ -178,6 +178,19 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       cancelled = reason instanceof DOMException && reason.name === 'AbortError'
       if (cancelled) {
         if (activeConversationId !== null) streamSessionsRef.current.delete(activeConversationId)
+        return
+      }
+      if (reason instanceof InvalidDoneUsageError && activeConversationId !== null && streamStarted) {
+        const completedRevision = messageRevisionRef.current.get(activeConversationId) ?? 0
+        messageRevisionRef.current.set(activeConversationId, completedRevision + 1)
+        streamSessionsRef.current.delete(activeConversationId)
+        try {
+          const saved = await listMessages(activeConversationId)
+          if (isVisible()) setMessages(saved)
+        } catch (reloadReason) {
+          if (reloadReason instanceof ApiError && reloadReason.status === 401) onSessionExpired()
+          else if (isVisible()) setError(reloadReason instanceof Error ? reloadReason.message : '메시지를 불러오지 못했습니다.')
+        }
         return
       }
       if (reason instanceof ApiError && reason.status === 401) {
