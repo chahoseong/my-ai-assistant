@@ -23,3 +23,13 @@ export interface Message {
   content: string
   created_at: string
 }
+
+export interface ResponseUsage {
+  input_tokens: number
+  output_tokens: number
+  context_limit: number | null
+}
+
+export interface StreamDoneData {
+  usage: ResponseUsage
+}
