@@ -287,6 +287,46 @@ async def test_done_usage_survives_missing_context_limit(
 
 
 @pytest.mark.asyncio
+async def test_stream_duration_excludes_context_limit_lookup(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimedContextLimitCache(StubContextLimitCache):
+        async def get_context_limit(self) -> int | None:
+            chat_router.perf_counter()
+            return await super().get_context_limit()
+
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", RecordingAgent(["answer"]))
+    monkeypatch.setattr(app.main, "context_limit_cache", TimedContextLimitCache(8192))
+    clock_values = iter([10.0, 11.0, 15.0, 50.0])
+    monkeypatch.setattr(chat_router, "perf_counter", lambda: next(clock_values))
+    recorded_durations: list[float] = []
+    monkeypatch.setattr(
+        chat_router,
+        "record_llm_stream_duration",
+        recorded_durations.append,
+    )
+    conversation_id = UUID(int=407)
+
+    async with test_database.session_factory() as session:
+        session.add(Conversation(id=conversation_id, user_id=authenticated_user[0].id))
+        await session.commit()
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "question"},
+    ) as response:
+        await response.aread()
+
+    assert response.status_code == 200
+    assert recorded_durations == [5.0]
+
+
+@pytest.mark.asyncio
 async def test_refresh_failure_after_commit_does_not_turn_success_into_error(
     client: AsyncClient,
     authenticated_user,

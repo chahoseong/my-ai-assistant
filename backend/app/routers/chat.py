@@ -83,6 +83,7 @@ async def stream_persisted_message(
                     response_parts.append(token)
                     yield {"data": token}
 
+                record_llm_stream_duration(perf_counter() - stream_started_at)
                 usage = result.usage
                 done_payload = StreamDonePayload(
                     usage=StreamUsagePayload(
@@ -91,7 +92,6 @@ async def stream_persisted_message(
                         context_limit=await get_context_limit_cache().get_context_limit(),
                     )
                 )
-                record_llm_stream_duration(perf_counter() - stream_started_at)
         except asyncio.CancelledError:
             raise
         except Exception:
