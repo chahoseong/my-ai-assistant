@@ -13,7 +13,6 @@ from app.database.models import Conversation, Message
 pytestmark = pytest.mark.integration
 
 
-
 @pytest.fixture
 async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
     monkeypatch.setattr(app.database.dependencies, "database", test_database)

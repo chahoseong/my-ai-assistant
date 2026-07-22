@@ -9,7 +9,6 @@ import app.database.dependencies
 pytestmark = pytest.mark.integration
 
 
-
 async def authenticated_client(client: AsyncClient, user_factory, session_factory):
     user = await user_factory(username="alice")
     _, token = await session_factory(user=user)

@@ -11,7 +11,6 @@ from tests.support.database_safety import truncate_test_database
 pytestmark = pytest.mark.integration
 
 
-
 @pytest.mark.asyncio
 async def test_test_database_schema_and_cleanup(test_database) -> None:
     async with test_database.session_factory() as session:

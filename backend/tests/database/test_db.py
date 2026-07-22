@@ -11,7 +11,6 @@ from app.observability.metrics import DB_POOL_IN_USE, bind_db_pool_in_use
 pytestmark = pytest.mark.unit
 
 
-
 def db_pool_in_use() -> float:
     for family in DB_POOL_IN_USE.collect():
         for sample in family.samples:

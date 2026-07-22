@@ -21,7 +21,6 @@ from app.web.dependencies import get_current_user_for_unsafe_request
 pytestmark = pytest.mark.integration
 
 
-
 @pytest.fixture
 async def authenticated_user(test_database, user_factory, session_factory, monkeypatch):
     monkeypatch.setattr(app.database.dependencies, "database", test_database)

@@ -3,7 +3,6 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-
 def test_username_is_trimmed_lowercased_and_validated() -> None:
     from app.auth.security import normalize_username
 

@@ -9,7 +9,6 @@ from app.concurrency import release_conversation, try_acquire_conversation
 pytestmark = pytest.mark.unit
 
 
-
 @pytest.mark.asyncio
 async def test_conversation_lock_rejects_duplicate_until_released() -> None:
     conversation_id = UUID(int=700)

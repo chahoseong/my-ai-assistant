@@ -12,7 +12,6 @@ from app.database.models import User
 pytestmark = pytest.mark.integration
 
 
-
 @pytest.mark.asyncio
 async def test_signup_normalizes_username_and_does_not_expose_password_hash(
     client: AsyncClient, test_database, monkeypatch: pytest.MonkeyPatch
