@@ -17,6 +17,7 @@ from app.concurrency import (
 )
 from app.database.core import Database
 from app.database.dependencies import get_database
+from app.llama import LlamaContextLimitCache
 from app.web.dependencies import CurrentUserForUnsafeRequest, JsonRequest
 from app.database.models import Conversation, Message
 from app.observability.logging import get_logger
@@ -27,7 +28,11 @@ from app.observability.metrics import (
     record_llm_stream_failure,
     record_conversation_lock_conflict,
 )
-from app.web.schemas import ConversationMessageCreate
+from app.web.schemas import (
+    ConversationMessageCreate,
+    StreamDonePayload,
+    StreamUsagePayload,
+)
 
 
 router = APIRouter(prefix="/api/conversations")
@@ -41,6 +46,12 @@ def get_stream_agent():
     from app.main import agent
 
     return agent
+
+
+def get_context_limit_cache() -> LlamaContextLimitCache:
+    from app.main import context_limit_cache
+
+    return context_limit_cache
 
 
 async def stream_persisted_message(
@@ -72,6 +83,14 @@ async def stream_persisted_message(
                     response_parts.append(token)
                     yield {"data": token}
 
+                usage = result.usage
+                done_payload = StreamDonePayload(
+                    usage=StreamUsagePayload(
+                        input_tokens=usage.input_tokens,
+                        output_tokens=usage.output_tokens,
+                        context_limit=await get_context_limit_cache().get_context_limit(),
+                    )
+                )
                 record_llm_stream_duration(perf_counter() - stream_started_at)
         except asyncio.CancelledError:
             raise
@@ -91,7 +110,7 @@ async def stream_persisted_message(
                 session.add(assistant_message)
                 await session.commit()
 
-            yield {"event": "done", "data": str(assistant_message.id)}
+            yield {"event": "done", "data": done_payload.model_dump_json()}
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import ModelMessage
+from pydantic_ai.usage import RunUsage
 import pytest
 
 
@@ -23,10 +24,10 @@ from app.web.schemas import ConversationMessageCreate
 pytestmark = pytest.mark.integration
 
 
-
 class BlockingStreamResult:
     def __init__(self, owner: "BlockingAgent") -> None:
         self.owner = owner
+        self.usage = RunUsage()
 
     async def __aenter__(self) -> "BlockingStreamResult":
         return self
