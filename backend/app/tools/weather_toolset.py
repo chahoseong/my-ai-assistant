@@ -9,6 +9,7 @@ from fastmcp.client.transports import StdioTransport
 from pydantic_ai.mcp import MCPToolset
 
 from app.config import load_weather_settings
+from app.tools.mcp_metrics import record_mcp_tool_call
 from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
 
 
@@ -44,6 +45,7 @@ async def open_weather_toolset(
             include_instructions=False,
             init_timeout=WEATHER_INIT_TIMEOUT_SECONDS,
             read_timeout=WEATHER_READ_TIMEOUT_SECONDS,
+            process_tool_call=record_mcp_tool_call,
         )
     )
     return ActiveAgentTools(toolsets=(toolset,))

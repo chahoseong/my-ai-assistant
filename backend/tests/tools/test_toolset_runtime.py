@@ -8,6 +8,7 @@ from pydantic_ai.mcp import MCPToolset
 from app.config import OpggTftSettings
 from app.tools.toolsets import open_opgg_tft_tools
 from app.tools.weather_toolset import open_weather_toolset
+from app.tools.mcp_metrics import record_mcp_tool_call
 
 
 pytestmark = pytest.mark.unit
@@ -135,6 +136,7 @@ async def test_weather_runtime_opens_a_stdio_toolset_and_closes_it_with_its_stac
             "include_instructions": False,
             "init_timeout": 10.0,
             "read_timeout": 10.0,
+            "process_tool_call": record_mcp_tool_call,
         }
         assert received_transport is not None
         assert getattr(received_transport, "args") == ["-m", "app.tools.weather_server"]
