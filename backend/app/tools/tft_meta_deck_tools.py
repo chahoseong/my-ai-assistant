@@ -22,6 +22,26 @@ from app.tools.tft_meta_decks import (
 
 logger = get_logger(__name__)
 
+TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION = (
+    "Call tft_describe_meta_decks first, then use only exact returned field paths."
+)
+_SAFE_INVALID_QUERY_REASONS = frozenset(
+    {
+        "The query limit must be between 1 and 10.",
+        "The query must request between one and twelve unique fields.",
+        "A requested field path is not available.",
+        "The query has too many leaf conditions.",
+        "The sort field path is not available.",
+        "The sort direction must be asc or desc.",
+        "The filter field path is not available.",
+        "The filter operator is not supported.",
+        "Numeric filter operators require a numeric value.",
+        "The filter condition has an invalid shape.",
+        "The filter condition is nested too deeply.",
+        "A filter condition group cannot be empty.",
+    }
+)
+
 
 class TftMetaDeckWhereInput(BaseModel):
     """One leaf predicate or one all/any condition group."""
@@ -81,7 +101,7 @@ class TftMetaDeckTools:
         self._snapshot_cache = snapshot_cache
 
     async def tft_describe_meta_decks(self) -> dict[str, object]:
-        """Return current TFT meta-deck field paths and types, never their values."""
+        """Return field paths and types before tft_query_meta_decks, never values."""
         return await self._run_observed(
             tool_name="tft_describe_meta_decks",
             operation=self._describe_meta_decks,
@@ -94,7 +114,7 @@ class TftMetaDeckTools:
         sort: TftMetaDeckSortInput | None = None,
         limit: int = 10,
     ) -> dict[str, object]:
-        """Query the current TFT meta-deck snapshot with exact field paths and filters."""
+        """Query after describing the snapshot with exact returned field paths."""
         return await self._run_observed(
             tool_name="tft_query_meta_decks",
             operation=lambda: self._query_meta_decks(fields, where, sort, limit),
@@ -183,4 +203,15 @@ class TftMetaDeckTools:
         | TftMetaDeckUpstreamTimeout
         | TftMetaDeckUpstreamUnavailable,
     ) -> Never:
+        if isinstance(error, InvalidTftMetaDeckQuery):
+            reason = str(error)
+            safe_reason = (
+                reason
+                if reason in _SAFE_INVALID_QUERY_REASONS
+                else "The query parameters are invalid."
+            )
+            raise ModelRetry(
+                f"{error.code}: {safe_reason} "
+                f"{TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION}"
+            )
         raise ModelRetry(f"{error.code}: Retry with a corrected or smaller request.")

@@ -6,11 +6,13 @@ import structlog
 from pydantic_ai import ModelRetry
 
 from app.tools.tft_meta_deck_tools import (
+    TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION,
     TftMetaDeckSortInput,
     TftMetaDeckTools,
     TftMetaDeckWhereInput,
 )
 from app.tools.tft_meta_decks import (
+    InvalidTftMetaDeckQuery,
     TftMetaDeckSnapshotCache,
     TftMetaDeckUpstreamTimeout,
 )
@@ -140,7 +142,10 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
             fields=["unknown.field"], where=None, sort=None, limit=3
         )
 
-    assert error.value.message.startswith("INVALID_QUERY:")
+    assert error.value.message == (
+        "INVALID_QUERY: A requested field path is not available. "
+        f"{TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION}"
+    )
 
     assert (
         AGENT_TOOL_CALLS_TOTAL.labels(
@@ -148,6 +153,31 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
         )._value.get()
         >= 1
     )
+
+
+def test_tft_tool_descriptions_explain_the_two_step_query_contract() -> None:
+    assert "before tft_query_meta_decks" in (
+        TftMetaDeckTools.tft_describe_meta_decks.__doc__ or ""
+    )
+    assert "after describing" in (TftMetaDeckTools.tft_query_meta_decks.__doc__ or "")
+    assert "exact returned field paths" in (
+        TftMetaDeckTools.tft_query_meta_decks.__doc__ or ""
+    )
+
+
+def test_invalid_query_retry_never_echoes_an_unrecognized_error_detail() -> None:
+    sensitive_error_detail = "private tool argument must not be returned to the model"
+
+    with pytest.raises(ModelRetry) as error:
+        TftMetaDeckTools._raise_model_retry(
+            InvalidTftMetaDeckQuery(sensitive_error_detail)
+        )
+
+    assert error.value.message == (
+        "INVALID_QUERY: The query parameters are invalid. "
+        f"{TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION}"
+    )
+    assert sensitive_error_detail not in error.value.message
 
 
 @pytest.mark.asyncio
