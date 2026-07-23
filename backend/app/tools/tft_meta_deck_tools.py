@@ -1,8 +1,11 @@
+from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import Literal, Never, Self
 
 from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 from pydantic_ai import ModelRetry
 
+from app.observability.metrics import record_agent_tool_call
 from app.tools.tft_meta_decks import (
     InvalidTftMetaDeckQuery,
     InvalidTftMetaDeckResponse,
@@ -76,15 +79,26 @@ class TftMetaDeckTools:
 
     async def tft_describe_meta_decks(self) -> dict[str, object]:
         """Return current TFT meta-deck field paths and types, never their values."""
-        try:
-            snapshot = await self._snapshot_cache.get_snapshot()
-        except (
-            InvalidTftMetaDeckResponse,
-            TftMetaDeckUpstreamTimeout,
-            TftMetaDeckUpstreamUnavailable,
-        ) as error:
-            self._raise_model_retry(error)
+        return await self._run_observed(
+            tool_name="tft_describe_meta_decks",
+            operation=self._describe_meta_decks,
+        )
 
+    async def tft_query_meta_decks(
+        self,
+        fields: list[str],
+        where: TftMetaDeckWhereInput | None = None,
+        sort: TftMetaDeckSortInput | None = None,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        """Query the current TFT meta-deck snapshot with exact field paths and filters."""
+        return await self._run_observed(
+            tool_name="tft_query_meta_decks",
+            operation=lambda: self._query_meta_decks(fields, where, sort, limit),
+        )
+
+    async def _describe_meta_decks(self) -> dict[str, object]:
+        snapshot = await self._snapshot_cache.get_snapshot()
         return {
             "record_count": len(snapshot.records),
             "data_as_of": snapshot.data_as_of.isoformat(),
@@ -99,31 +113,48 @@ class TftMetaDeckTools:
             ],
         }
 
-    async def tft_query_meta_decks(
+    async def _query_meta_decks(
         self,
         fields: list[str],
-        where: TftMetaDeckWhereInput | None = None,
-        sort: TftMetaDeckSortInput | None = None,
-        limit: int = 10,
+        where: TftMetaDeckWhereInput | None,
+        sort: TftMetaDeckSortInput | None,
+        limit: int,
     ) -> dict[str, object]:
-        """Query the current TFT meta-deck snapshot with exact field paths and filters."""
-        try:
-            snapshot = await self._snapshot_cache.get_snapshot()
-            result = snapshot.query(
-                fields=tuple(fields),
-                where=where.to_domain_condition() if where is not None else None,
-                sort=sort.to_domain_sort() if sort is not None else None,
-                limit=limit,
-            )
-        except (
-            InvalidTftMetaDeckQuery,
-            InvalidTftMetaDeckResponse,
-            TftMetaDeckResultTooLarge,
-            TftMetaDeckUpstreamTimeout,
-            TftMetaDeckUpstreamUnavailable,
-        ) as error:
-            self._raise_model_retry(error)
+        snapshot = await self._snapshot_cache.get_snapshot()
+        result = snapshot.query(
+            fields=tuple(fields),
+            where=where.to_domain_condition() if where is not None else None,
+            sort=sort.to_domain_sort() if sort is not None else None,
+            limit=limit,
+        )
         return result.to_payload()
+
+    async def _run_observed(
+        self,
+        *,
+        tool_name: str,
+        operation: Callable[[], Awaitable[dict[str, object]]],
+    ) -> dict[str, object]:
+        started_at = perf_counter()
+        outcome = "failed"
+        try:
+            result = await operation()
+            outcome = "success"
+            return result
+        except (InvalidTftMetaDeckQuery, TftMetaDeckResultTooLarge) as error:
+            outcome = "denied"
+            self._raise_model_retry(error)
+        except TftMetaDeckUpstreamTimeout as error:
+            outcome = "timeout"
+            self._raise_model_retry(error)
+        except (InvalidTftMetaDeckResponse, TftMetaDeckUpstreamUnavailable) as error:
+            self._raise_model_retry(error)
+        finally:
+            record_agent_tool_call(
+                tool_name=tool_name,
+                outcome=outcome,
+                duration_seconds=perf_counter() - started_at,
+            )
 
     @staticmethod
     def _raise_model_retry(

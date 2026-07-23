@@ -52,6 +52,16 @@ LLM_STREAM_FAILURES_TOTAL = Counter(
     "llm_stream_failures_total",
     "Total failed LLM streams.",
 )
+AGENT_TOOL_CALLS_TOTAL = Counter(
+    "agent_tool_calls_total",
+    "Total model-facing function tool calls by outcome.",
+    labelnames=("tool_name", "outcome"),
+)
+AGENT_TOOL_DURATION_SECONDS = Histogram(
+    "agent_tool_duration_seconds",
+    "Duration of model-facing function tool calls by outcome.",
+    labelnames=("tool_name", "outcome"),
+)
 CONVERSATION_LOCK_CONFLICTS_TOTAL = Counter(
     "conversation_lock_conflicts_total",
     "Total conversation lock conflicts.",
@@ -68,6 +78,8 @@ METRICS = {
     "llm_stream_duration_seconds": LLM_STREAM_DURATION_SECONDS,
     "llm_stream_deltas_total": LLM_STREAM_DELTAS_TOTAL,
     "llm_stream_failures_total": LLM_STREAM_FAILURES_TOTAL,
+    "agent_tool_calls_total": AGENT_TOOL_CALLS_TOTAL,
+    "agent_tool_duration_seconds": AGENT_TOOL_DURATION_SECONDS,
     "conversation_lock_conflicts_total": CONVERSATION_LOCK_CONFLICTS_TOTAL,
     "db_pool_in_use": DB_POOL_IN_USE,
 }
@@ -111,6 +123,15 @@ def record_llm_stream_delta() -> None:
 
 def record_llm_stream_failure() -> None:
     LLM_STREAM_FAILURES_TOTAL.inc()
+
+
+def record_agent_tool_call(
+    *, tool_name: str, outcome: str, duration_seconds: float
+) -> None:
+    AGENT_TOOL_CALLS_TOTAL.labels(tool_name=tool_name, outcome=outcome).inc()
+    AGENT_TOOL_DURATION_SECONDS.labels(
+        tool_name=tool_name, outcome=outcome
+    ).observe(duration_seconds)
 
 
 def record_conversation_lock_conflict() -> None:

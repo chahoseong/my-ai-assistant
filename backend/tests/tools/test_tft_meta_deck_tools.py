@@ -8,10 +8,28 @@ from app.tools.tft_meta_deck_tools import (
     TftMetaDeckTools,
     TftMetaDeckWhereInput,
 )
-from app.tools.tft_meta_decks import TftMetaDeckSnapshotCache
+from app.tools.tft_meta_decks import (
+    TftMetaDeckSnapshotCache,
+    TftMetaDeckUpstreamTimeout,
+)
+from app.observability.metrics import (
+    AGENT_TOOL_CALLS_TOTAL,
+    AGENT_TOOL_DURATION_SECONDS,
+)
 
 
 pytestmark = pytest.mark.unit
+
+
+def histogram_count(*, tool_name: str, outcome: str) -> float:
+    [metric] = AGENT_TOOL_DURATION_SECONDS.labels(
+        tool_name=tool_name, outcome=outcome
+    ).collect()
+    return next(
+        sample.value
+        for sample in metric.samples
+        if sample.name == "agent_tool_duration_seconds_count"
+    )
 
 
 @pytest.fixture
@@ -59,6 +77,31 @@ async def test_describe_tool_returns_schema_without_meta_deck_values(
 
 
 @pytest.mark.asyncio
+async def test_describe_tool_records_a_successful_model_tool_call(
+    tools: TftMetaDeckTools,
+) -> None:
+    calls = AGENT_TOOL_CALLS_TOTAL.labels(
+        tool_name="tft_describe_meta_decks", outcome="success"
+    )._value.get()
+    durations = histogram_count(
+        tool_name="tft_describe_meta_decks", outcome="success"
+    )
+
+    await tools.tft_describe_meta_decks()
+
+    assert (
+        AGENT_TOOL_CALLS_TOTAL.labels(
+            tool_name="tft_describe_meta_decks", outcome="success"
+        )._value.get()
+        == calls + 1
+    )
+    assert (
+        histogram_count(tool_name="tft_describe_meta_decks", outcome="success")
+        == durations + 1
+    )
+
+
+@pytest.mark.asyncio
 async def test_query_tool_converts_the_typed_condition_and_returns_only_requested_values(
     tools: TftMetaDeckTools,
 ) -> None:
@@ -95,6 +138,35 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
         )
 
     assert error.value.message.startswith("INVALID_QUERY:")
+
+    assert (
+        AGENT_TOOL_CALLS_TOTAL.labels(
+            tool_name="tft_query_meta_decks", outcome="denied"
+        )._value.get()
+        >= 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_describe_tool_records_an_upstream_timeout_before_requesting_a_retry() -> None:
+    async def fetch_payload() -> object:
+        raise TftMetaDeckUpstreamTimeout("timed out")
+
+    tools = TftMetaDeckTools(TftMetaDeckSnapshotCache(fetch_payload=fetch_payload))
+    calls = AGENT_TOOL_CALLS_TOTAL.labels(
+        tool_name="tft_describe_meta_decks", outcome="timeout"
+    )._value.get()
+
+    with pytest.raises(ModelRetry) as error:
+        await tools.tft_describe_meta_decks()
+
+    assert error.value.message.startswith("UPSTREAM_TIMEOUT:")
+    assert (
+        AGENT_TOOL_CALLS_TOTAL.labels(
+            tool_name="tft_describe_meta_decks", outcome="timeout"
+        )._value.get()
+        == calls + 1
+    )
 
 
 def test_where_input_requires_exactly_one_predicate_or_condition_group() -> None:
