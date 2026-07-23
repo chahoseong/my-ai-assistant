@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+import inspect
 import json
+from typing import Literal
 
 import pytest
 import structlog
@@ -7,7 +9,6 @@ from pydantic_ai import ModelRetry
 
 from app.tools.tft_meta_deck_tools import (
     TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION,
-    TftMetaDeckSortInput,
     TftMetaDeckTools,
     TftMetaDeckWhereInput,
 )
@@ -130,7 +131,8 @@ async def test_query_tool_converts_the_typed_condition_and_returns_only_requeste
         where=TftMetaDeckWhereInput.model_validate(
             {"path": "traits[].key", "operator": "contains", "value": "trait-a"}
         ),
-        sort=TftMetaDeckSortInput(path="stat.deck.winRate", direction="desc"),
+        sort_path="stat.deck.winRate",
+        sort_direction="desc",
         limit=3,
     )
 
@@ -154,7 +156,7 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
 ) -> None:
     with pytest.raises(ModelRetry) as error:
         await tools.tft_query_meta_decks(
-            fields=["name.en_US"], where=None, sort=None, limit=3
+            fields=["name.en_US"], limit=3
         )
 
     assert error.value.message == (
@@ -205,7 +207,7 @@ async def test_describe_tool_does_not_fallback_to_an_english_name() -> None:
     }
     with pytest.raises(ModelRetry):
         await tools.tft_query_meta_decks(
-            fields=["name.en_US"], where=None, sort=None, limit=1
+            fields=["name.en_US"], limit=1
         )
 
 
@@ -213,22 +215,35 @@ async def test_describe_tool_does_not_fallback_to_an_english_name() -> None:
 async def test_query_tool_rejects_english_name_paths_in_filters_and_sorts(
     tools: TftMetaDeckTools,
 ) -> None:
-    for where, sort in (
+    cases: tuple[
+        tuple[TftMetaDeckWhereInput | None, str | None, Literal["asc", "desc"]], ...
+    ] = (
         (
             TftMetaDeckWhereInput.model_validate(
                 {"path": "name.en_US", "operator": "eq", "value": "Test Deck"}
             ),
             None,
+            "desc",
         ),
-        (None, TftMetaDeckSortInput(path="name.en_US", direction="asc")),
-    ):
+        (None, "name.en_US", "asc"),
+    )
+    for where, sort_path, sort_direction in cases:
         with pytest.raises(ModelRetry):
             await tools.tft_query_meta_decks(
                 fields=["stat.deck.winRate"],
                 where=where,
-                sort=sort,
+                sort_path=sort_path,
+                sort_direction=sort_direction,
                 limit=1,
             )
+
+
+def test_query_tool_exposes_flat_sort_parameters() -> None:
+    parameters = inspect.signature(TftMetaDeckTools.tft_query_meta_decks).parameters
+
+    assert "sort" not in parameters
+    assert "sort_path" in parameters
+    assert "sort_direction" in parameters
 
 
 def test_tft_tool_descriptions_explain_the_two_step_query_contract() -> None:
@@ -297,7 +312,7 @@ async def test_query_tool_logs_a_safe_timeout_with_request_correlation(
 
     with pytest.raises(ModelRetry):
         await tools.tft_query_meta_decks(
-            fields=[sensitive_argument], where=None, sort=None, limit=1
+            fields=[sensitive_argument], limit=1
         )
 
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]

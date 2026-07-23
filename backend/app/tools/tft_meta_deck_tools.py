@@ -89,16 +89,6 @@ class TftMetaDeckWhereInput(BaseModel):
         )
 
 
-class TftMetaDeckSortInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    path: str
-    direction: Literal["asc", "desc"]
-
-    def to_domain_sort(self) -> TftMetaDeckSort:
-        return TftMetaDeckSort(path=self.path, direction=self.direction)
-
-
 class TftMetaDeckTools:
     def __init__(self, snapshot_cache: TftMetaDeckSnapshotCache) -> None:
         self._snapshot_cache = snapshot_cache
@@ -114,13 +104,16 @@ class TftMetaDeckTools:
         self,
         fields: list[str],
         where: TftMetaDeckWhereInput | None = None,
-        sort: TftMetaDeckSortInput | None = None,
+        sort_path: str | None = None,
+        sort_direction: Literal["asc", "desc"] = "desc",
         limit: int = 10,
     ) -> dict[str, object]:
-        """Query after describing with exact returned field paths; use name.ko_KR."""
+        """Query exact returned field paths after describing; use name.ko_KR and sort_path."""
         return await self._run_observed(
             tool_name="tft_query_meta_decks",
-            operation=lambda: self._query_meta_decks(fields, where, sort, limit),
+            operation=lambda: self._query_meta_decks(
+                fields, where, sort_path, sort_direction, limit
+            ),
         )
 
     async def _describe_meta_decks(self) -> dict[str, object]:
@@ -143,7 +136,8 @@ class TftMetaDeckTools:
         self,
         fields: list[str],
         where: TftMetaDeckWhereInput | None,
-        sort: TftMetaDeckSortInput | None,
+        sort_path: str | None,
+        sort_direction: Literal["asc", "desc"],
         limit: int,
     ) -> dict[str, object]:
         snapshot = await self._snapshot_cache.get_snapshot()
@@ -153,7 +147,11 @@ class TftMetaDeckTools:
         result = snapshot.query(
             fields=tuple(fields),
             where=where.to_domain_condition() if where is not None else None,
-            sort=sort.to_domain_sort() if sort is not None else None,
+            sort=(
+                TftMetaDeckSort(path=sort_path, direction=sort_direction)
+                if sort_path is not None
+                else None
+            ),
             limit=limit,
             allowed_paths=public_paths,
         )
