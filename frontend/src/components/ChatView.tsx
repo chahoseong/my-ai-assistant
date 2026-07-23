@@ -238,7 +238,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     <div className="message-list" aria-live="polite">
       {loading && <p className="chat-status">메시지를 불러오는 중…</p>}
       {!loading && messages.length === 0 && <p className="chat-status">무엇을 도와드릴까요?</p>}
-      {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '나' : '어시스턴트'}</strong><p>{message.content || (isStreaming ? '응답을 생성하고 있습니다…' : '')}</p></article>)}
+      {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '나' : '어시스턴트'}</strong>{message.content ? <p>{message.content}</p> : isStreaming ? <p className="message-pending"><span className="visually-hidden">응답을 생성하고 있습니다…</span><span aria-hidden="true">응답을 생성하고 있습니다</span><span className="message-pending-dots" aria-hidden="true"><span></span><span></span><span></span></span></p> : <p></p>}</article>)}
     </div>
     <footer className="composer-area">{responsePerformance && <section className="response-performance" aria-label="최근 응답 사용량 및 성능">
       <h2>최근 응답</h2>
