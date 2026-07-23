@@ -9,6 +9,7 @@ from pydantic_ai import (
     ModelResponse,
     TextPart,
     UserPromptPart,
+    UsageLimitExceeded,
 )
 from pydantic_ai.usage import RunUsage
 import pytest
@@ -84,8 +85,14 @@ class SuccessfulAgent:
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        **_: object,
     ) -> SuccessfulStreamResult:
         return SuccessfulStreamResult(message)
+
+
+class UsageLimitedAgent:
+    def run_stream(self, *_: object, **__: object) -> object:
+        raise UsageLimitExceeded("tool call limit exceeded")
 
 
 async def collect_messages(test_database, conversation_id: UUID) -> list[Message]:
@@ -182,6 +189,39 @@ async def test_llm_failure_keeps_user_only_and_sends_error_event(
     [stored_prompt] = stored_request.parts
     assert isinstance(stored_prompt, UserPromptPart)
     assert stored_prompt.content == "will fail"
+
+
+@pytest.mark.asyncio
+async def test_usage_limit_sends_a_distinct_terminal_error_event(
+    test_database, user_factory, session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
+    conversation_id = UUID(int=503)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", UsageLimitedAgent())
+
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+
+    async with client:
+        async with client.stream(
+            "POST",
+            f"/api/conversations/{conversation_id}/messages",
+            json={"message": "use too many tools"},
+        ) as response:
+            body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert "data: The assistant reached its execution limit." in body
+    assert "data: Unable to generate a response." not in body
+    assert "event: done" not in body
+    assert [
+        message.role
+        for message in await collect_messages(test_database, conversation_id)
+    ] == ["user"]
 
 
 @pytest.mark.asyncio

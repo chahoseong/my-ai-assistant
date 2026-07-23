@@ -10,6 +10,7 @@ from pydantic_ai import (
     ModelResponse,
     TextPart,
     UserPromptPart,
+    UsageLimits,
 )
 from pydantic_ai.usage import RunUsage
 import pytest
@@ -94,15 +95,18 @@ class RecordingAgent:
         self.usage = usage or RunUsage()
         self.message: str | None = None
         self.message_history: Sequence[ModelMessage] | None = None
+        self.usage_limits: UsageLimits | None = None
 
     def run_stream(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        usage_limits: UsageLimits | None = None,
     ) -> FakeStreamResult:
         self.message = message
         self.message_history = message_history
+        self.usage_limits = usage_limits
         return FakeStreamResult(
             self.deltas,
             self.usage,
@@ -218,6 +222,7 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     assert body.index("data:  world") < body.index("event: done")
 
     assert fake_agent.message == "current question"
+    assert fake_agent.usage_limits == UsageLimits(tool_calls_limit=5, request_limit=8)
     assert fake_agent.message_history is not None
     assert len(fake_agent.message_history) == 2
     assert isinstance(fake_agent.message_history[0], ModelRequest)

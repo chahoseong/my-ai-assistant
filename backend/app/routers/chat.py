@@ -4,7 +4,8 @@ from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic_ai import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai import ModelMessage, ModelRequest, UsageLimitExceeded, UserPromptPart
+from pydantic_ai.usage import UsageLimits
 from starlette.background import BackgroundTask
 from sse_starlette import EventSourceResponse
 from sqlalchemy import select
@@ -39,6 +40,9 @@ from app.web.schemas import (
 router = APIRouter(prefix="/api/conversations")
 logger = get_logger(__name__)
 STREAM_ERROR_MESSAGE = "Unable to generate a response."
+USAGE_LIMIT_ERROR_MESSAGE = "The assistant reached its execution limit."
+TOOL_CALLS_LIMIT = 5
+REQUEST_LIMIT = 8
 
 
 def get_stream_agent():
@@ -71,6 +75,10 @@ async def stream_persisted_message(
             stream = get_stream_agent().run_stream(
                 user_prompt,
                 message_history=message_history,
+                usage_limits=UsageLimits(
+                    tool_calls_limit=TOOL_CALLS_LIMIT,
+                    request_limit=REQUEST_LIMIT,
+                ),
             )
 
             async with stream as result:
@@ -97,6 +105,11 @@ async def stream_persisted_message(
                 )
         except asyncio.CancelledError:
             raise
+        except UsageLimitExceeded:
+            record_llm_stream_failure()
+            logger.info("message_stream_usage_limit_exceeded")
+            yield {"event": "error", "data": USAGE_LIMIT_ERROR_MESSAGE}
+            return
         except Exception:
             record_llm_stream_failure()
             logger.error("message_stream_failed")

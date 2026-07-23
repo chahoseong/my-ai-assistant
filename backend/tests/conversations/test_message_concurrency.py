@@ -69,6 +69,7 @@ class BlockingAgent:
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        **_: object,
     ) -> BlockingStreamResult:
         return BlockingStreamResult(self, message)
 
@@ -101,6 +102,7 @@ class CancelThenSuccessAgent:
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        **_: object,
     ) -> CancelledStreamResult | BlockingStreamResult:
         self.calls += 1
         if self.calls == 1:
