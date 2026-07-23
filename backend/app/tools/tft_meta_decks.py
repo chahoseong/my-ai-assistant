@@ -258,8 +258,13 @@ class TftMetaDeckSnapshot:
         where: object | None,
         sort: TftMetaDeckSort | None,
         limit: int,
+        allowed_paths: set[str] | None = None,
     ) -> TftMetaDeckQueryResult:
-        available_paths = {field.path for field in self.describe_fields()}
+        available_paths = (
+            allowed_paths
+            if allowed_paths is not None
+            else {field.path for field in self.describe_fields()}
+        )
         self._validate_query(
             fields=fields,
             where=where,

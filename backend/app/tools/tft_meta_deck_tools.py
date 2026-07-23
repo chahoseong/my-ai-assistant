@@ -8,12 +8,14 @@ from pydantic_ai import ModelRetry
 from app.observability.logging import get_logger
 from app.observability.metrics import record_agent_tool_call
 from app.tools.tft_meta_decks import (
+    FieldDescription,
     InvalidTftMetaDeckQuery,
     InvalidTftMetaDeckResponse,
     TftMetaDeckAll,
     TftMetaDeckAny,
     TftMetaDeckPredicate,
     TftMetaDeckResultTooLarge,
+    TftMetaDeckSnapshot,
     TftMetaDeckSnapshotCache,
     TftMetaDeckSort,
     TftMetaDeckUpstreamUnavailable,
@@ -25,6 +27,7 @@ logger = get_logger(__name__)
 TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION = (
     "Call tft_describe_meta_decks first, then use only exact returned field paths."
 )
+KOREAN_DECK_NAME_PATH = "name.ko_KR"
 _SAFE_INVALID_QUERY_REASONS = frozenset(
     {
         "The query limit must be between 1 and 10.",
@@ -114,7 +117,7 @@ class TftMetaDeckTools:
         sort: TftMetaDeckSortInput | None = None,
         limit: int = 10,
     ) -> dict[str, object]:
-        """Query after describing the snapshot with exact returned field paths."""
+        """Query after describing with exact returned field paths; use name.ko_KR."""
         return await self._run_observed(
             tool_name="tft_query_meta_decks",
             operation=lambda: self._query_meta_decks(fields, where, sort, limit),
@@ -132,7 +135,7 @@ class TftMetaDeckTools:
                     "type": field.type,
                     "present_count": field.present_count,
                 }
-                for field in snapshot.describe_fields()
+                for field in self._public_field_descriptions(snapshot)
             ],
         }
 
@@ -144,13 +147,28 @@ class TftMetaDeckTools:
         limit: int,
     ) -> dict[str, object]:
         snapshot = await self._snapshot_cache.get_snapshot()
+        public_paths = {
+            field.path for field in self._public_field_descriptions(snapshot)
+        }
         result = snapshot.query(
             fields=tuple(fields),
             where=where.to_domain_condition() if where is not None else None,
             sort=sort.to_domain_sort() if sort is not None else None,
             limit=limit,
+            allowed_paths=public_paths,
         )
         return result.to_payload()
+
+    @staticmethod
+    def _public_field_descriptions(
+        snapshot: TftMetaDeckSnapshot,
+    ) -> tuple[FieldDescription, ...]:
+        return tuple(
+            field
+            for field in snapshot.describe_fields()
+            if field.path == KOREAN_DECK_NAME_PATH
+            or not field.path.startswith("name.")
+        )
 
     async def _run_observed(
         self,

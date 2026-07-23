@@ -37,13 +37,28 @@ def histogram_count(*, tool_name: str, outcome: str) -> float:
     )
 
 
+def described_field_paths(description: dict[str, object]) -> set[str]:
+    fields = description["fields"]
+    assert isinstance(fields, list)
+    paths: set[str] = set()
+    for field in fields:
+        assert isinstance(field, dict)
+        path = field["path"]
+        assert isinstance(path, str)
+        paths.add(path)
+    return paths
+
+
 @pytest.fixture
 def tools() -> TftMetaDeckTools:
     async def fetch_payload() -> object:
         return {
             "data": [
                 {
-                    "name": {"ko_KR": "테스트 덱"},
+                    "name": {
+                        "en_US": "Test Deck",
+                        "ko_KR": "테스트 덱",
+                    },
                     "stat": {"deck": {"winRate": 0.21}},
                     "traits": [{"key": "trait-a"}],
                 }
@@ -139,7 +154,7 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
 ) -> None:
     with pytest.raises(ModelRetry) as error:
         await tools.tft_query_meta_decks(
-            fields=["unknown.field"], where=None, sort=None, limit=3
+            fields=["name.en_US"], where=None, sort=None, limit=3
         )
 
     assert error.value.message == (
@@ -155,6 +170,67 @@ async def test_query_tool_requests_a_model_retry_for_invalid_queries(
     )
 
 
+@pytest.mark.asyncio
+async def test_describe_tool_hides_english_names_when_korean_names_are_available(
+    tools: TftMetaDeckTools,
+) -> None:
+    result = await tools.tft_describe_meta_decks()
+
+    assert described_field_paths(result) == {
+        "name.ko_KR",
+        "stat.deck.winRate",
+        "traits[].key",
+    }
+
+
+@pytest.mark.asyncio
+async def test_describe_tool_does_not_fallback_to_an_english_name() -> None:
+    async def fetch_payload() -> object:
+        return {
+            "data": [
+                {
+                    "name": {"en_US": "English-only deck"},
+                    "stat": {"deck": {"winRate": 0.21}},
+                }
+            ],
+            "metadata": {"gameStatDateTime": "2026-07-23T12:00:00Z"},
+        }
+
+    tools = TftMetaDeckTools(TftMetaDeckSnapshotCache(fetch_payload=fetch_payload))
+
+    description = await tools.tft_describe_meta_decks()
+
+    assert described_field_paths(description) == {
+        "stat.deck.winRate"
+    }
+    with pytest.raises(ModelRetry):
+        await tools.tft_query_meta_decks(
+            fields=["name.en_US"], where=None, sort=None, limit=1
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_tool_rejects_english_name_paths_in_filters_and_sorts(
+    tools: TftMetaDeckTools,
+) -> None:
+    for where, sort in (
+        (
+            TftMetaDeckWhereInput.model_validate(
+                {"path": "name.en_US", "operator": "eq", "value": "Test Deck"}
+            ),
+            None,
+        ),
+        (None, TftMetaDeckSortInput(path="name.en_US", direction="asc")),
+    ):
+        with pytest.raises(ModelRetry):
+            await tools.tft_query_meta_decks(
+                fields=["stat.deck.winRate"],
+                where=where,
+                sort=sort,
+                limit=1,
+            )
+
+
 def test_tft_tool_descriptions_explain_the_two_step_query_contract() -> None:
     assert "before tft_query_meta_decks" in (
         TftMetaDeckTools.tft_describe_meta_decks.__doc__ or ""
@@ -163,6 +239,7 @@ def test_tft_tool_descriptions_explain_the_two_step_query_contract() -> None:
     assert "exact returned field paths" in (
         TftMetaDeckTools.tft_query_meta_decks.__doc__ or ""
     )
+    assert "name.ko_KR" in (TftMetaDeckTools.tft_query_meta_decks.__doc__ or "")
 
 
 def test_invalid_query_retry_never_echoes_an_unrecognized_error_detail() -> None:
