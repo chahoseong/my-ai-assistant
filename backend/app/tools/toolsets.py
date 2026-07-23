@@ -1,11 +1,12 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
 from typing import Any, cast
 
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from app.config import OpggTftSettings
+from app.config import OpggTftSettings, load_opgg_tft_settings
+from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
 from app.tools.tft_meta_deck_tools import TftMetaDeckTools
 from app.tools.tft_meta_decks import (
     TftMetaDeckMcpClient,
@@ -15,6 +16,20 @@ from app.tools.tft_meta_decks import (
 
 OPGG_INIT_TIMEOUT_SECONDS = 10.0
 OPGG_CALL_TIMEOUT_SECONDS = 10.0
+
+
+def opgg_tft_registration(environment: Mapping[str, str]) -> ToolsetRegistration:
+    async def activate(stack: AsyncExitStack) -> ActiveAgentTools:
+        settings = load_opgg_tft_settings(environment)
+        tools = await open_opgg_tft_tools(settings, stack=stack)
+        return ActiveAgentTools(
+            functions=(
+                tools.tft_describe_meta_decks,
+                tools.tft_query_meta_decks,
+            )
+        )
+
+    return ToolsetRegistration(name="opgg_tft", activate=activate)
 
 
 async def open_opgg_tft_tools(

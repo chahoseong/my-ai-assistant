@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import app.database.dependencies
 import app.main
 from app.llama import LlamaContextLimitCache
+from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
 
 pytestmark = pytest.mark.unit
 
@@ -72,22 +73,43 @@ def test_application_startup_rejects_insecure_non_local_cookie(
             pass
 
 
-def test_application_startup_continues_when_opgg_toolset_cannot_open(
+def test_application_startup_composes_only_successful_toolset_registrations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fail_to_open_opgg(**_: object) -> object:
-        raise RuntimeError("OP.GG unavailable")
+    created_agents: list[tuple[tuple[object, ...], tuple[object, ...]]] = []
+
+    async def active_tool() -> str:
+        return "available"
+
+    async def fail_to_activate(_: object) -> ActiveAgentTools:
+        raise RuntimeError("unavailable")
+
+    async def activate_successful_toolset(_: object) -> ActiveAgentTools:
+        return ActiveAgentTools(functions=(active_tool,))
+
+    def registrations(_: object) -> tuple[ToolsetRegistration, ...]:
+        return (
+            ToolsetRegistration("failed", fail_to_activate),
+            ToolsetRegistration("successful", activate_successful_toolset),
+        )
+
+    def create_agent(_: object, *, tools=(), toolsets=()) -> object:
+        created_agents.append((tuple(tools), tuple(toolsets)))
+        return object()
 
     async def dispose_database() -> None:
         return None
 
-    monkeypatch.setenv("OPGG_MCP_URL", "https://opgg.example/mcp")
     monkeypatch.setattr(app.main, "get_auth_settings", lambda: None)
     monkeypatch.setattr(app.main, "get_database", lambda: None)
     monkeypatch.setattr(app.main, "dispose_database", dispose_database)
-    monkeypatch.setattr(app.main, "open_opgg_tft_tools", fail_to_open_opgg)
+    monkeypatch.setattr(
+        app.main, "default_toolset_registrations", registrations, raising=False
+    )
+    monkeypatch.setattr(app.main, "create_agent", create_agent)
 
     with TestClient(app.main.app) as client:
         response = client.get("/metrics")
 
     assert response.status_code == 200
+    assert ((active_tool,), ()) in created_agents

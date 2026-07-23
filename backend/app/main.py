@@ -10,20 +10,17 @@ from app.agent import (
     load_llama_settings,
 )
 from app.auth.dependencies import get_auth_settings
-from app.config import load_opgg_tft_settings
 from app.database.dependencies import dispose_database, get_database
 from app.llama import LlamaContextLimitCache
-from app.observability.logging import configure_observability, get_logger
+from app.observability.logging import configure_observability
 from app.observability.metrics import METRICS_PATH
 from app.observability.middleware import RequestObservabilityMiddleware
 from app.routers.conversations import router as conversations_router
 from app.routers.chat import router as chat_router
 from app.routers.messages import router as messages_router
 from app.routers.auth import router as auth_router
-from app.tools.toolsets import open_opgg_tft_tools
-
-
-logger = get_logger(__name__)
+from app.tools.registrations import default_toolset_registrations
+from app.tools.runtime import activate_toolset_registrations
 
 
 @asynccontextmanager
@@ -33,25 +30,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     get_database()
     tool_stack = AsyncExitStack()
     try:
-        tool_functions = []
-        opgg_settings = load_opgg_tft_settings(os.environ)
-        try:
-            tft_tools = await open_opgg_tft_tools(
-                settings=opgg_settings,
-                stack=tool_stack,
-            )
-        except Exception as error:
-            logger.warning(
-                "toolset_startup_failed",
-                toolset="opgg_tft",
-                error_type=type(error).__name__,
-            )
-        else:
-            tool_functions = [
-                tft_tools.tft_describe_meta_decks,
-                tft_tools.tft_query_meta_decks,
-            ]
-        agent = create_agent(llama_settings, tools=tool_functions)
+        active_tools = await activate_toolset_registrations(
+            default_toolset_registrations(os.environ),
+            stack=tool_stack,
+        )
+        agent = create_agent(
+            llama_settings,
+            tools=active_tools.functions,
+            toolsets=active_tools.toolsets,
+        )
         yield
     finally:
         await tool_stack.aclose()
