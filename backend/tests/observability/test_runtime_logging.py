@@ -23,6 +23,6 @@ def test_documented_server_commands_disable_uvicorn_access_logs() -> None:
     assert (
         "dotenvx run -- powershell -NoProfile -Command "
         "'llama-server -m $env:LLAMA_MODEL_PATH "
-        "--alias $env:LLM_MODEL_NAME --port 8080'"
+        "--alias $env:LLM_MODEL_NAME --port 8080 --jinja'"
     ) in readme
     assert "$envLines = Get-Content .env" not in readme
