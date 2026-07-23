@@ -35,23 +35,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         tool_functions = []
         opgg_settings = load_opgg_tft_settings(os.environ)
-        if opgg_settings.mcp_url is not None:
-            try:
-                tft_tools = await open_opgg_tft_tools(
-                    settings=opgg_settings,
-                    stack=tool_stack,
-                )
-            except Exception as error:
-                logger.warning(
-                    "toolset_startup_failed",
-                    toolset="opgg_tft",
-                    error_type=type(error).__name__,
-                )
-            else:
-                tool_functions = [
-                    tft_tools.tft_describe_meta_decks,
-                    tft_tools.tft_query_meta_decks,
-                ]
+        try:
+            tft_tools = await open_opgg_tft_tools(
+                settings=opgg_settings,
+                stack=tool_stack,
+            )
+        except Exception as error:
+            logger.warning(
+                "toolset_startup_failed",
+                toolset="opgg_tft",
+                error_type=type(error).__name__,
+            )
+        else:
+            tool_functions = [
+                tft_tools.tft_describe_meta_decks,
+                tft_tools.tft_query_meta_decks,
+            ]
         agent = create_agent(llama_settings, tools=tool_functions)
         yield
     finally:

@@ -21,9 +21,6 @@ async def open_opgg_tft_tools(
     client_factory: Callable[[object], Any] = Client,
 ) -> TftMetaDeckTools:
     """Open the private OP.GG client; only local function tools reach the agent."""
-    if settings.mcp_url is None:
-        raise ValueError("OPGG_MCP_URL must be configured before opening OP.GG tools")
-
     client = await stack.enter_async_context(
         client_factory(StreamableHttpTransport(settings.mcp_url))
     )

@@ -52,12 +52,12 @@ def test_weather_settings_allow_provider_endpoint_replacement() -> None:
     assert settings.weather_base_url == "https://weather.example.test"
 
 
-def test_opgg_tft_settings_are_disabled_without_a_remote_url() -> None:
+def test_opgg_tft_settings_use_the_documented_remote_endpoint_by_default() -> None:
     config = importlib.import_module("app.config")
 
     settings = config.load_opgg_tft_settings({})
 
-    assert settings.mcp_url is None
+    assert settings.mcp_url == "https://mcp-api.op.gg/mcp"
     assert settings.cache_ttl_seconds == 300.0
 
 

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from math import isfinite
 
 
+DEFAULT_OPGG_MCP_URL = "https://mcp-api.op.gg/mcp"
+
 @dataclass(frozen=True)
 class DatabaseSettings:
     url: str
@@ -39,7 +41,7 @@ def load_weather_settings(env: Mapping[str, str]) -> WeatherSettings:
 
 @dataclass(frozen=True)
 class OpggTftSettings:
-    mcp_url: str | None
+    mcp_url: str
     cache_ttl_seconds: float
 
 
@@ -52,7 +54,9 @@ def load_opgg_tft_settings(env: Mapping[str, str]) -> OpggTftSettings:
     if not isfinite(cache_ttl_seconds) or cache_ttl_seconds <= 0:
         raise ValueError("OPGG_TFT_CACHE_TTL_SECONDS must be a positive number")
 
-    mcp_url = env.get("OPGG_MCP_URL", "").strip() or None
+    mcp_url = env.get("OPGG_MCP_URL", DEFAULT_OPGG_MCP_URL).strip()
+    if not mcp_url:
+        raise ValueError("OPGG_MCP_URL must not be empty")
     return OpggTftSettings(
         mcp_url=mcp_url,
         cache_ttl_seconds=cache_ttl_seconds,
