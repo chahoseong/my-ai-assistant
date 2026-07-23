@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,28 @@ def load_weather_settings(env: Mapping[str, str]) -> WeatherSettings:
             "NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"
         ),
         weather_base_url=env.get("OPEN_METEO_BASE_URL", "https://api.open-meteo.com"),
+    )
+
+
+@dataclass(frozen=True)
+class OpggTftSettings:
+    mcp_url: str | None
+    cache_ttl_seconds: float
+
+
+def load_opgg_tft_settings(env: Mapping[str, str]) -> OpggTftSettings:
+    raw_ttl = env.get("OPGG_TFT_CACHE_TTL_SECONDS", "300")
+    try:
+        cache_ttl_seconds = float(raw_ttl)
+    except ValueError:
+        raise ValueError("OPGG_TFT_CACHE_TTL_SECONDS must be a positive number") from None
+    if not isfinite(cache_ttl_seconds) or cache_ttl_seconds <= 0:
+        raise ValueError("OPGG_TFT_CACHE_TTL_SECONDS must be a positive number")
+
+    mcp_url = env.get("OPGG_MCP_URL", "").strip() or None
+    return OpggTftSettings(
+        mcp_url=mcp_url,
+        cache_ttl_seconds=cache_ttl_seconds,
     )
 
 

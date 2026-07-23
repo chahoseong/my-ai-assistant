@@ -70,3 +70,24 @@ def test_application_startup_rejects_insecure_non_local_cookie(
     with pytest.raises(ValueError, match="SESSION_COOKIE_SECURE"):
         with TestClient(app.main.app):
             pass
+
+
+def test_application_startup_continues_when_opgg_toolset_cannot_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_to_open_opgg(**_: object) -> object:
+        raise RuntimeError("OP.GG unavailable")
+
+    async def dispose_database() -> None:
+        return None
+
+    monkeypatch.setenv("OPGG_MCP_URL", "https://opgg.example/mcp")
+    monkeypatch.setattr(app.main, "get_auth_settings", lambda: None)
+    monkeypatch.setattr(app.main, "get_database", lambda: None)
+    monkeypatch.setattr(app.main, "dispose_database", dispose_database)
+    monkeypatch.setattr(app.main, "open_opgg_tft_tools", fail_to_open_opgg)
+
+    with TestClient(app.main.app) as client:
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
