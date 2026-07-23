@@ -10,12 +10,18 @@ from pydantic_ai.mcp import MCPToolset
 
 from app.config import load_weather_settings
 from app.tools.mcp_metrics import record_mcp_tool_call
+from app.tools.response_guidance import ToolResponseGuidanceToolset
 from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
 
 
 WEATHER_INIT_TIMEOUT_SECONDS = 10.0
 WEATHER_READ_TIMEOUT_SECONDS = 10.0
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+WEATHER_RESPONSE_INSTRUCTIONS = """
+Use the weather data to answer the user's request directly. Do not unnecessarily expose
+implementation-specific field names, numeric codes, raw JSON, identifiers, or debug details.
+Separate facts observed in the data from any interpretation or advice.
+""".strip()
 
 
 def weather_registration(environment: Mapping[str, str]) -> ToolsetRegistration:
@@ -48,4 +54,13 @@ async def open_weather_toolset(
             process_tool_call=record_mcp_tool_call,
         )
     )
-    return ActiveAgentTools(toolsets=(toolset,))
+    return ActiveAgentTools(
+        toolsets=(
+            ToolResponseGuidanceToolset(
+                wrapped=toolset,
+                response_guidance_by_tool_name={
+                    "get_current_weather": WEATHER_RESPONSE_INSTRUCTIONS,
+                },
+            ),
+        )
+    )
