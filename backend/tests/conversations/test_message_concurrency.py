@@ -3,7 +3,13 @@ from collections.abc import AsyncIterator, Sequence
 from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
-from pydantic_ai import ModelMessage
+from pydantic_ai import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.usage import RunUsage
 import pytest
 
@@ -25,8 +31,9 @@ pytestmark = pytest.mark.integration
 
 
 class BlockingStreamResult:
-    def __init__(self, owner: "BlockingAgent") -> None:
+    def __init__(self, owner: "BlockingAgent", message: str) -> None:
         self.owner = owner
+        self.message = message
         self.usage = RunUsage()
 
     async def __aenter__(self) -> "BlockingStreamResult":
@@ -43,6 +50,12 @@ class BlockingStreamResult:
         await self.owner.release.wait()
         yield "answer"
 
+    def new_messages(self) -> list[ModelMessage]:
+        return [
+            ModelRequest(parts=[UserPromptPart(self.message)]),
+            ModelResponse(parts=[TextPart("answer")]),
+        ]
+
 
 class BlockingAgent:
     def __init__(self, expected_started: int = 1) -> None:
@@ -57,7 +70,7 @@ class BlockingAgent:
         *,
         message_history: Sequence[ModelMessage] | None = None,
     ) -> BlockingStreamResult:
-        return BlockingStreamResult(self)
+        return BlockingStreamResult(self, message)
 
 
 class CancelledStreamResult:
@@ -93,7 +106,7 @@ class CancelThenSuccessAgent:
         if self.calls == 1:
             return CancelledStreamResult(self.first_started)
 
-        return BlockingStreamResult(self.second_agent)
+        return BlockingStreamResult(self.second_agent, message)
 
 
 async def create_conversation(

@@ -3,6 +3,8 @@ from typing import cast
 from uuid import UUID
 
 from httpx import AsyncClient
+from pydantic_ai import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.usage import RunUsage
 import pytest
 
 
@@ -28,6 +30,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.contract]
 
 
 class SuccessfulStream:
+    def __init__(self) -> None:
+        self.usage = RunUsage()
+
     async def __aenter__(self) -> "SuccessfulStream":
         return self
 
@@ -38,6 +43,12 @@ class SuccessfulStream:
         assert delta is True
         yield "safe assistant response"
 
+    def new_messages(self):
+        return [
+            ModelRequest(parts=[UserPromptPart("canonical user prompt")]),
+            ModelResponse(parts=[TextPart("safe assistant response")]),
+        ]
+
 
 class SuccessfulAgent:
     def run_stream(self, *_: object, **__: object) -> SuccessfulStream:
@@ -46,6 +57,9 @@ class SuccessfulAgent:
 
 class RecordingSession:
     def add(self, _: object) -> None:
+        return None
+
+    def add_all(self, _: object) -> None:
         return None
 
     async def commit(self) -> None:
@@ -118,6 +132,7 @@ async def test_stream_logs_exact_ttft_without_prompt_content(
             UUID(int=1),
             prompt,
             [],
+            0,
             cast(ConversationLease, RecordingLease()),
         )
     ]

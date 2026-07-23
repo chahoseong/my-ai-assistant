@@ -5,15 +5,12 @@ from dataclasses import dataclass
 from pydantic_ai import (
     Agent,
     ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    UserPromptPart,
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from app.database.models import Message
+from app.database.models import ModelMessageRecord
+from app.model_history import deserialize_model_messages
 
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it-qat-q4_0-gguf"
@@ -48,30 +45,7 @@ def create_agent(settings: LlamaSettings) -> Agent:
     return Agent(model)
 
 
-def build_message_history(messages: Sequence[Message]) -> list[ModelMessage]:
-    history: list[ModelMessage] = []
-
-    for message in messages:
-        if message.role == "user":
-            history.append(
-                ModelRequest(
-                    parts=[
-                        UserPromptPart(
-                            content=message.content,
-                            timestamp=message.created_at,
-                        )
-                    ],
-                    timestamp=message.created_at,
-                )
-            )
-        elif message.role == "assistant":
-            history.append(
-                ModelResponse(
-                    parts=[TextPart(content=message.content)],
-                    timestamp=message.created_at,
-                )
-            )
-        else:
-            raise ValueError(f"Unsupported message role: {message.role}")
-
-    return history
+def build_message_history(
+    model_messages: Sequence[ModelMessageRecord],
+) -> list[ModelMessage]:
+    return deserialize_model_messages([record.payload for record in model_messages])

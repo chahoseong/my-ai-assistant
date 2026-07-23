@@ -4,7 +4,7 @@ from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic_ai import ModelMessage
+from pydantic_ai import ModelMessage, ModelRequest, UserPromptPart
 from starlette.background import BackgroundTask
 from sse_starlette import EventSourceResponse
 from sqlalchemy import select
@@ -19,7 +19,8 @@ from app.database.core import Database
 from app.database.dependencies import get_database
 from app.llama import LlamaContextLimitCache
 from app.web.dependencies import CurrentUserForUnsafeRequest, JsonRequest
-from app.database.models import Conversation, Message
+from app.database.models import Conversation, Message, ModelMessageRecord
+from app.model_history import serialize_model_messages
 from app.observability.logging import get_logger
 from app.observability.metrics import (
     record_llm_first_token,
@@ -59,6 +60,7 @@ async def stream_persisted_message(
     conversation_id: UUID,
     user_prompt: str,
     message_history: Sequence[ModelMessage],
+    next_sequence: int,
     lease: ConversationLease,
 ) -> AsyncIterator[dict[str, str]]:
     try:
@@ -83,6 +85,7 @@ async def stream_persisted_message(
                     response_parts.append(token)
                     yield {"data": token}
 
+                new_message_payloads = serialize_model_messages(result.new_messages()[1:])
                 record_llm_stream_duration(perf_counter() - stream_started_at)
                 usage = result.usage
                 done_payload = StreamDonePayload(
@@ -108,6 +111,14 @@ async def stream_persisted_message(
                     content="".join(response_parts),
                 )
                 session.add(assistant_message)
+                session.add_all(
+                    ModelMessageRecord(
+                        conversation_id=conversation_id,
+                        sequence=next_sequence + offset,
+                        payload=payload,
+                    )
+                    for offset, payload in enumerate(new_message_payloads)
+                )
                 await session.commit()
 
             yield {"event": "done", "data": done_payload.model_dump_json()}
@@ -163,17 +174,33 @@ async def send_message(
         async with database.session_factory() as session:
             try:
                 result = await session.scalars(
-                    select(Message)
-                    .where(Message.conversation_id == conversation_id)
-                    .order_by(Message.created_at.asc(), Message.id.asc())
+                    select(ModelMessageRecord)
+                    .where(ModelMessageRecord.conversation_id == conversation_id)
+                    .order_by(ModelMessageRecord.sequence.asc())
                 )
-                history = build_message_history(list(result))
+                stored_model_messages = list(result)
+                history = build_message_history(stored_model_messages)
+                user_message_payload = serialize_model_messages(
+                    [ModelRequest(parts=[UserPromptPart(payload.message)])]
+                )[0]
+                next_sequence = (
+                    stored_model_messages[-1].sequence + 1
+                    if stored_model_messages
+                    else 0
+                )
 
                 session.add(
                     Message(
                         conversation_id=conversation_id,
                         role="user",
                         content=payload.message,
+                    )
+                )
+                session.add(
+                    ModelMessageRecord(
+                        conversation_id=conversation_id,
+                        sequence=next_sequence,
+                        payload=user_message_payload,
                     )
                 )
                 await session.commit()
@@ -191,6 +218,7 @@ async def send_message(
                 conversation_id,
                 payload.message,
                 history,
+                next_sequence + 1,
                 lease,
             ),
             background=BackgroundTask(lease.release),

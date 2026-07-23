@@ -5,31 +5,36 @@ from pydantic_ai import ModelRequest, ModelResponse, TextPart, UserPromptPart
 import pytest
 
 from app.agent import build_message_history
-from app.database.models import Message
+from app.database.models import ModelMessageRecord
+from app.model_history import serialize_model_messages
 
 
 pytestmark = pytest.mark.unit
 
 
-def test_build_message_history_maps_database_messages_to_model_messages() -> None:
+def test_build_message_history_restores_canonical_database_records() -> None:
     user_time = datetime(2026, 1, 1, tzinfo=UTC)
     assistant_time = datetime(2026, 1, 2, tzinfo=UTC)
-    messages = [
-        Message(
-            id=UUID(int=1),
-            role="user",
-            content="hello",
-            created_at=user_time,
+    canonical_messages = [
+        ModelRequest(
+            parts=[UserPromptPart("hello", timestamp=user_time)],
+            timestamp=user_time,
         ),
-        Message(
-            id=UUID(int=2),
-            role="assistant",
-            content="hi there",
-            created_at=assistant_time,
+        ModelResponse(
+            parts=[TextPart("hi there")],
+            timestamp=assistant_time,
         ),
     ]
+    records = [
+        ModelMessageRecord(
+            id=UUID(int=sequence + 1),
+            sequence=sequence,
+            payload=payload,
+        )
+        for sequence, payload in enumerate(serialize_model_messages(canonical_messages))
+    ]
 
-    history = build_message_history(messages)
+    history = build_message_history(records)
 
     assert len(history) == 2
     assert isinstance(history[0], ModelRequest)

@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.database.dependencies
 import app.main
 from app.concurrency import release_conversation, try_acquire_conversation
-from app.database.models import Conversation, Message, User
+from app.database.models import Conversation, Message, ModelMessageRecord, User
+from app.model_history import deserialize_model_messages, serialize_model_messages
 from app.routers import chat as chat_router
 from app.web.schemas import ConversationMessageCreate
 from app.observability.metrics import (
@@ -57,9 +58,15 @@ def event_json(body: str, event_name: str) -> dict[str, object]:
 
 
 class FakeStreamResult:
-    def __init__(self, deltas: Sequence[str], usage: RunUsage) -> None:
+    def __init__(
+        self,
+        deltas: Sequence[str],
+        usage: RunUsage,
+        new_messages: Sequence[ModelMessage],
+    ) -> None:
         self.deltas = deltas
         self.usage = usage
+        self._new_messages = new_messages
 
     async def __aenter__(self) -> "FakeStreamResult":
         return self
@@ -71,6 +78,9 @@ class FakeStreamResult:
         assert delta is True
         for value in self.deltas:
             yield value
+
+    def new_messages(self) -> list[ModelMessage]:
+        return list(self._new_messages)
 
 
 class RecordingAgent:
@@ -93,7 +103,14 @@ class RecordingAgent:
     ) -> FakeStreamResult:
         self.message = message
         self.message_history = message_history
-        return FakeStreamResult(self.deltas, self.usage)
+        return FakeStreamResult(
+            self.deltas,
+            self.usage,
+            [
+                ModelRequest(parts=[UserPromptPart(message)]),
+                ModelResponse(parts=[TextPart("".join(self.deltas))]),
+            ],
+        )
 
 
 class StubContextLimitCache:
@@ -147,6 +164,16 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     before_delta_count = LLM_STREAM_DELTAS_TOTAL._value.get()
 
     async with test_database.session_factory() as session:
+        canonical_history = [
+            ModelRequest(
+                parts=[UserPromptPart("canonical previous question")],
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            ModelResponse(
+                parts=[TextPart("canonical previous answer")],
+                timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+            ),
+        ]
         session.add(
             Conversation(
                 id=conversation_id,
@@ -164,6 +191,12 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
                         content="previous answer",
                         created_at=datetime(2026, 1, 2, tzinfo=UTC),
                     ),
+                ],
+                model_messages=[
+                    ModelMessageRecord(sequence=sequence, payload=payload)
+                    for sequence, payload in enumerate(
+                        serialize_model_messages(canonical_history)
+                    )
                 ],
             )
         )
@@ -193,8 +226,8 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
     second_part = fake_agent.message_history[1].parts[0]
     assert isinstance(first_part, UserPromptPart)
     assert isinstance(second_part, TextPart)
-    assert first_part.content == "previous question"
-    assert second_part.content == "previous answer"
+    assert first_part.content == "canonical previous question"
+    assert second_part.content == "canonical previous answer"
 
     async with test_database.session_factory() as session:
         stored_messages = list(
@@ -215,6 +248,32 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
         "current question",
         "Hello world",
     ]
+
+    async with test_database.session_factory() as session:
+        stored_model_messages = list(
+            await session.scalars(
+                select(ModelMessageRecord)
+                .where(ModelMessageRecord.conversation_id == conversation_id)
+                .order_by(ModelMessageRecord.sequence.asc())
+            )
+        )
+
+    assert [record.sequence for record in stored_model_messages] == [0, 1, 2, 3]
+    restored_history = deserialize_model_messages(
+        [record.payload for record in stored_model_messages]
+    )
+    assert isinstance(restored_history[2], ModelRequest)
+    current_prompt = restored_history[2].parts[0]
+    assert isinstance(current_prompt, UserPromptPart)
+    assert current_prompt.content == "current question"
+    assert isinstance(restored_history[3], ModelResponse)
+    assert [
+        message
+        for message in restored_history
+        if isinstance(message, ModelRequest)
+        and isinstance(message.parts[0], UserPromptPart)
+        and message.parts[0].content == "current question"
+    ] == [restored_history[2]]
     assert event_json(body, "done") == {
         "usage": {
             "input_tokens": 37,
