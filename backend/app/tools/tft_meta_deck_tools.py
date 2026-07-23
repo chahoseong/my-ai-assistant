@@ -13,6 +13,7 @@ from app.tools.tft_meta_decks import (
     TftMetaDeckSnapshotCache,
     TftMetaDeckSort,
     TftMetaDeckUpstreamUnavailable,
+    TftMetaDeckUpstreamTimeout,
 )
 
 
@@ -77,7 +78,11 @@ class TftMetaDeckTools:
         """Return current TFT meta-deck field paths and types, never their values."""
         try:
             snapshot = await self._snapshot_cache.get_snapshot()
-        except (InvalidTftMetaDeckResponse, TftMetaDeckUpstreamUnavailable) as error:
+        except (
+            InvalidTftMetaDeckResponse,
+            TftMetaDeckUpstreamTimeout,
+            TftMetaDeckUpstreamUnavailable,
+        ) as error:
             self._raise_model_retry(error)
 
         return {
@@ -114,6 +119,7 @@ class TftMetaDeckTools:
             InvalidTftMetaDeckQuery,
             InvalidTftMetaDeckResponse,
             TftMetaDeckResultTooLarge,
+            TftMetaDeckUpstreamTimeout,
             TftMetaDeckUpstreamUnavailable,
         ) as error:
             self._raise_model_retry(error)
@@ -124,6 +130,7 @@ class TftMetaDeckTools:
         error: InvalidTftMetaDeckQuery
         | InvalidTftMetaDeckResponse
         | TftMetaDeckResultTooLarge
+        | TftMetaDeckUpstreamTimeout
         | TftMetaDeckUpstreamUnavailable,
     ) -> Never:
         raise ModelRetry(f"{error.code}: Retry with a corrected or smaller request.")

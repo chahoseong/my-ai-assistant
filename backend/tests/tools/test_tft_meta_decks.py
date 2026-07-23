@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from mcp.types import ErrorData
+from mcp import McpError
 
 from app.tools.tft_meta_decks import (
     FieldDescription,
@@ -18,6 +20,7 @@ from app.tools.tft_meta_decks import (
     TftMetaDeckSort,
     TftMetaDeckSnapshotCache,
     TftMetaDeckUpstreamUnavailable,
+    TftMetaDeckUpstreamTimeout,
     fetch_opgg_tft_meta_decks,
     resolve_field_path,
 )
@@ -90,6 +93,18 @@ async def test_opgg_fetcher_translates_remote_call_failures_to_unavailable() -> 
         await fetch_opgg_tft_meta_decks(client)
 
     assert error.value.code == "UPSTREAM_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_opgg_fetcher_classifies_the_mcp_request_timeout_without_reading_its_message() -> None:
+    client = FakeMcpClient(
+        error=McpError(ErrorData(code=408, message="provider-specific text"))
+    )
+
+    with pytest.raises(TftMetaDeckUpstreamTimeout) as error:
+        await fetch_opgg_tft_meta_decks(client)
+
+    assert error.value.code == "UPSTREAM_TIMEOUT"
 
 
 def test_snapshot_preserves_valid_meta_deck_records_and_timestamps() -> None:

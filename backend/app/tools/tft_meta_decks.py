@@ -3,6 +3,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from http import HTTPStatus
 from time import monotonic
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypeGuard
@@ -32,6 +33,10 @@ class TftMetaDeckUpstreamUnavailable(Exception):
     code = "UPSTREAM_UNAVAILABLE"
 
 
+class TftMetaDeckUpstreamTimeout(Exception):
+    code = "UPSTREAM_TIMEOUT"
+
+
 MAX_QUERY_FIELDS = 12
 MAX_QUERY_LEAF_CONDITIONS = 8
 MAX_QUERY_GROUP_DEPTH = 2
@@ -48,7 +53,14 @@ async def fetch_opgg_tft_meta_decks(client: TftMetaDeckMcpClient) -> object:
     """Fetch the one allowlisted OP.GG MCP response as a JSON object."""
     try:
         result = await client.call_tool("tft_list_meta_decks", {})
-    except Exception:
+    except TimeoutError:
+        raise TftMetaDeckUpstreamTimeout("The TFT data service timed out.") from None
+    except Exception as error:
+        error_data = getattr(error, "error", None)
+        if getattr(error_data, "code", None) == HTTPStatus.REQUEST_TIMEOUT:
+            raise TftMetaDeckUpstreamTimeout(
+                "The TFT data service timed out."
+            ) from None
         raise TftMetaDeckUpstreamUnavailable(
             "The TFT data service is temporarily unavailable."
         ) from None
@@ -553,7 +565,11 @@ class TftMetaDeckSnapshotCache:
 
             try:
                 payload = await self._fetch_payload()
-            except (InvalidTftMetaDeckResponse, TftMetaDeckUpstreamUnavailable):
+            except (
+                InvalidTftMetaDeckResponse,
+                TftMetaDeckUpstreamTimeout,
+                TftMetaDeckUpstreamUnavailable,
+            ):
                 raise
             except Exception:
                 raise TftMetaDeckUpstreamUnavailable(
