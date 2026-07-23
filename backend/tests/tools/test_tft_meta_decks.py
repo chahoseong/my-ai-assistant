@@ -13,6 +13,7 @@ from app.tools.tft_meta_decks import (
     TftMetaDeckAny,
     TftMetaDeckPredicate,
     TftMetaDeckQueryResult,
+    TftMetaDeckResultTooLarge,
     TftMetaDeckSnapshot,
     TftMetaDeckSort,
     TftMetaDeckSnapshotCache,
@@ -571,6 +572,100 @@ def test_query_rejects_a_limit_outside_the_supported_range(limit: int) -> None:
             sort=None,
             limit=limit,
         )
+
+
+def test_query_rejects_invalid_filter_paths_operators_and_group_complexity() -> None:
+    snapshot = TftMetaDeckSnapshot.from_payload(
+        {
+            "data": [
+                {
+                    "name": {"ko_KR": "테스트 덱"},
+                    "stat": {"deck": {"winRate": 0.2}},
+                }
+            ],
+            "metadata": {"gameStatDateTime": "2026-07-23T12:00:00Z"},
+        },
+        fetched_at=datetime(2026, 7, 23, 12, 5, tzinfo=UTC),
+    )
+
+    invalid_conditions = (
+        TftMetaDeckPredicate(path="stat.deck.unknown", operator="gte", value=0.2),
+        TftMetaDeckPredicate(path="stat.deck.winRate", operator="approximately", value=0.2),
+        TftMetaDeckAny(
+            conditions=(
+                TftMetaDeckAll(
+                    conditions=(
+                        TftMetaDeckAny(
+                            conditions=(
+                                TftMetaDeckPredicate(
+                                    path="stat.deck.winRate", operator="gte", value=0.2
+                                ),
+                            )
+                        ),
+                    )
+                ),
+            )
+        ),
+    )
+
+    for where in invalid_conditions:
+        with pytest.raises(InvalidTftMetaDeckQuery) as error:
+            snapshot.query(
+                fields=("name.ko_KR",), where=where, sort=None, limit=10
+            )
+
+        assert error.value.code == "INVALID_QUERY"
+
+
+def test_query_supports_exact_and_numeric_comparison_operators() -> None:
+    snapshot = TftMetaDeckSnapshot.from_payload(
+        {
+            "data": [
+                {"name": {"ko_KR": "A"}, "stat": {"deck": {"winRate": 0.2}}},
+                {"name": {"ko_KR": "B"}, "stat": {"deck": {"winRate": 0.25}}},
+            ],
+            "metadata": {"gameStatDateTime": "2026-07-23T12:00:00Z"},
+        },
+        fetched_at=datetime(2026, 7, 23, 12, 5, tzinfo=UTC),
+    )
+
+    for operator, value, expected_names in (
+        ("eq", 0.2, ("A",)),
+        ("neq", 0.2, ("B",)),
+        ("gt", 0.2, ("B",)),
+        ("gte", 0.2, ("A", "B")),
+        ("lt", 0.25, ("A",)),
+        ("lte", 0.2, ("A",)),
+    ):
+        result = snapshot.query(
+            fields=("name.ko_KR",),
+            where=TftMetaDeckPredicate(
+                path="stat.deck.winRate", operator=operator, value=value
+            ),
+            sort=None,
+            limit=10,
+        )
+
+        assert result.records == tuple(
+            {"name": {"ko_KR": name}} for name in expected_names
+        )
+
+
+def test_query_rejects_oversized_result_without_returning_partial_records() -> None:
+    snapshot = TftMetaDeckSnapshot.from_payload(
+        {
+            "data": [{"name": {"ko_KR": "가" * 6_000}}],
+            "metadata": {"gameStatDateTime": "2026-07-23T12:00:00Z"},
+        },
+        fetched_at=datetime(2026, 7, 23, 12, 5, tzinfo=UTC),
+    )
+
+    with pytest.raises(TftMetaDeckResultTooLarge) as error:
+        snapshot.query(
+            fields=("name.ko_KR",), where=None, sort=None, limit=10
+        )
+
+    assert error.value.code == "RESULT_TOO_LARGE"
 
 
 @pytest.mark.asyncio

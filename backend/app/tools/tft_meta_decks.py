@@ -24,8 +24,18 @@ class InvalidTftMetaDeckQuery(Exception):
     code = "INVALID_QUERY"
 
 
+class TftMetaDeckResultTooLarge(Exception):
+    code = "RESULT_TOO_LARGE"
+
+
 class TftMetaDeckUpstreamUnavailable(Exception):
     code = "UPSTREAM_UNAVAILABLE"
+
+
+MAX_QUERY_FIELDS = 12
+MAX_QUERY_LEAF_CONDITIONS = 8
+MAX_QUERY_GROUP_DEPTH = 2
+MAX_QUERY_RESULT_BYTES = 16 * 1024
 
 
 class TftMetaDeckMcpClient(Protocol):
@@ -95,6 +105,15 @@ class TftMetaDeckQueryResult:
     sort_excluded_count: int
     data_as_of: datetime
     fetched_at: datetime
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "records": list(self.records),
+            "matched_count": self.matched_count,
+            "sort_excluded_count": self.sort_excluded_count,
+            "data_as_of": self.data_as_of.isoformat(),
+            "fetched_at": self.fetched_at.isoformat(),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,12 +247,14 @@ class TftMetaDeckSnapshot:
         sort: TftMetaDeckSort | None,
         limit: int,
     ) -> TftMetaDeckQueryResult:
-        if not 1 <= limit <= 10:
-            raise InvalidTftMetaDeckQuery("The query limit must be between 1 and 10.")
-
         available_paths = {field.path for field in self.describe_fields()}
-        if any(field not in available_paths for field in fields):
-            raise InvalidTftMetaDeckQuery("A requested field path is not available.")
+        self._validate_query(
+            fields=fields,
+            where=where,
+            sort=sort,
+            limit=limit,
+            available_paths=available_paths,
+        )
 
         filtered_records = tuple(
             record
@@ -263,7 +284,7 @@ class TftMetaDeckSnapshot:
                     reverse=sort.direction == "desc",
                 )
             )
-        return TftMetaDeckQueryResult(
+        result = TftMetaDeckQueryResult(
             records=tuple(
                 self._project_fields(record, fields)
                 for record in matched_records[:limit]
@@ -272,6 +293,89 @@ class TftMetaDeckSnapshot:
             sort_excluded_count=sort_excluded_count,
             data_as_of=self.data_as_of,
             fetched_at=self.fetched_at,
+        )
+        payload_bytes = len(
+            json.dumps(
+                result.to_payload(), ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+        )
+        if payload_bytes > MAX_QUERY_RESULT_BYTES:
+            raise TftMetaDeckResultTooLarge(
+                "The query result exceeds the supported response size."
+            )
+        return result
+
+    @classmethod
+    def _validate_query(
+        cls,
+        *,
+        fields: tuple[str, ...],
+        where: object | None,
+        sort: TftMetaDeckSort | None,
+        limit: int,
+        available_paths: set[str],
+    ) -> None:
+        if not 1 <= limit <= 10:
+            raise InvalidTftMetaDeckQuery("The query limit must be between 1 and 10.")
+        if not 1 <= len(fields) <= MAX_QUERY_FIELDS or len(set(fields)) != len(fields):
+            raise InvalidTftMetaDeckQuery(
+                "The query must request between one and twelve unique fields."
+            )
+        if any(field not in available_paths for field in fields):
+            raise InvalidTftMetaDeckQuery("A requested field path is not available.")
+
+        if where is not None:
+            leaf_count = cls._validate_condition(where, available_paths, group_depth=0)
+            if leaf_count > MAX_QUERY_LEAF_CONDITIONS:
+                raise InvalidTftMetaDeckQuery("The query has too many leaf conditions.")
+
+        if sort is not None:
+            if sort.path not in available_paths:
+                raise InvalidTftMetaDeckQuery("The sort field path is not available.")
+            if sort.direction not in {"asc", "desc"}:
+                raise InvalidTftMetaDeckQuery("The sort direction must be asc or desc.")
+
+    @classmethod
+    def _validate_condition(
+        cls,
+        condition: object,
+        available_paths: set[str],
+        *,
+        group_depth: int,
+    ) -> int:
+        if isinstance(condition, TftMetaDeckPredicate):
+            if condition.path not in available_paths:
+                raise InvalidTftMetaDeckQuery("The filter field path is not available.")
+            if condition.operator not in {
+                "eq",
+                "neq",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "contains",
+                "not_contains",
+            }:
+                raise InvalidTftMetaDeckQuery("The filter operator is not supported.")
+            if condition.operator in {"gt", "gte", "lt", "lte"} and not cls._is_number(
+                condition.value
+            ):
+                raise InvalidTftMetaDeckQuery(
+                    "Numeric filter operators require a numeric value."
+                )
+            return 1
+
+        if not isinstance(condition, TftMetaDeckAll | TftMetaDeckAny):
+            raise InvalidTftMetaDeckQuery("The filter condition has an invalid shape.")
+        if group_depth >= MAX_QUERY_GROUP_DEPTH:
+            raise InvalidTftMetaDeckQuery("The filter condition is nested too deeply.")
+        if not condition.conditions:
+            raise InvalidTftMetaDeckQuery("A filter condition group cannot be empty.")
+        return sum(
+            cls._validate_condition(
+                child, available_paths, group_depth=group_depth + 1
+            )
+            for child in condition.conditions
         )
 
     @classmethod
@@ -295,23 +399,36 @@ class TftMetaDeckSnapshot:
         record: Mapping[str, object], predicate: TftMetaDeckPredicate
     ) -> bool:
         values = resolve_field_path(record, predicate.path)
-        if predicate.operator == "contains":
-            return any(
-                value is not MISSING and value is not None and value == predicate.value
-                for value in values
+        known_values = tuple(
+            value for value in values if value is not MISSING and value is not None
+        )
+        if predicate.operator == "eq":
+            return any(value == predicate.value for value in known_values)
+        if predicate.operator == "neq":
+            return bool(known_values) and len(known_values) == len(values) and all(
+                value != predicate.value for value in known_values
             )
+        if predicate.operator == "contains":
+            return any(value == predicate.value for value in known_values)
         if predicate.operator == "not_contains":
             return not any(
                 value is MISSING or value is None for value in values
             ) and all(value != predicate.value for value in values)
         threshold = predicate.value
-        if predicate.operator != "gte" or not TftMetaDeckSnapshot._is_number(threshold):
+        if not TftMetaDeckSnapshot._is_number(threshold):
             return False
-
-        return any(
-            TftMetaDeckSnapshot._is_number(value) and value >= threshold
-            for value in values
+        numeric_values = tuple(
+            value for value in known_values if TftMetaDeckSnapshot._is_number(value)
         )
+        if predicate.operator == "gt":
+            return any(value > threshold for value in numeric_values)
+        if predicate.operator == "gte":
+            return any(value >= threshold for value in numeric_values)
+        if predicate.operator == "lt":
+            return any(value < threshold for value in numeric_values)
+        if predicate.operator == "lte":
+            return any(value <= threshold for value in numeric_values)
+        return False
 
     @classmethod
     def _project_fields(
