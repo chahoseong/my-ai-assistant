@@ -21,7 +21,7 @@ def test_model_message_payloads_round_trip_all_required_part_types() -> None:
     timestamp = datetime(2026, 7, 23, tzinfo=UTC)
     history = [
         ModelRequest(
-            parts=[UserPromptPart("서울 날씨와 TFT 메타를 알려줘", timestamp=timestamp)],
+            parts=[UserPromptPart("서울 날씨와 환율을 알려줘", timestamp=timestamp)],
             timestamp=timestamp,
         ),
         ModelResponse(
@@ -33,9 +33,9 @@ def test_model_message_payloads_round_trip_all_required_part_types() -> None:
                     tool_call_id="weather-call",
                 ),
                 ToolCallPart(
-                    tool_name="tft_list_meta_decks",
+                    tool_name="get_exchange_rate",
                     args={},
-                    tool_call_id="tft-call",
+                    tool_call_id="exchange-rate-call",
                 ),
             ],
             model_name="test-model",
@@ -50,9 +50,9 @@ def test_model_message_payloads_round_trip_all_required_part_types() -> None:
                     timestamp=timestamp,
                 ),
                 RetryPromptPart(
-                    "TFT 도구 결과를 더 간결하게 설명해줘.",
-                    tool_name="tft_list_meta_decks",
-                    tool_call_id="tft-call",
+                    "환율 도구 결과를 더 간결하게 설명해줘.",
+                    tool_name="get_exchange_rate",
+                    tool_call_id="exchange-rate-call",
                     timestamp=timestamp,
                 ),
             ],
@@ -71,7 +71,7 @@ def test_model_message_payloads_round_trip_all_required_part_types() -> None:
     ]
     assert [part.tool_call_id for part in tool_calls] == [
         "weather-call",
-        "tft-call",
+        "exchange-rate-call",
     ]
     assert isinstance(restored[2], ModelRequest)
     assert isinstance(restored[2].parts[0], ToolReturnPart)

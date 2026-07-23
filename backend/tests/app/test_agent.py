@@ -60,7 +60,7 @@ class RecordingAgent:
 def test_create_agent_receives_only_explicitly_injected_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def tft_describe_meta_decks() -> dict[str, object]:
+    async def example_tool() -> dict[str, object]:
         return {}
 
     weather_toolset = cast(Any, object())
@@ -74,12 +74,12 @@ def test_create_agent_receives_only_explicitly_injected_tools(
                 base_url="http://llama.example/v1",
                 api_key="test-key",
             ),
-            tools=[tft_describe_meta_decks],
+            tools=[example_tool],
             toolsets=[weather_toolset],
         ),
     )
 
-    assert agent.tools == [tft_describe_meta_decks]
+    assert agent.tools == [example_tool]
     assert agent.toolsets == [weather_toolset]
     assert "untrusted data" in agent.instructions
     assert agent.tool_timeout == 10.0

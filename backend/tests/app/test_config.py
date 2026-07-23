@@ -52,29 +52,6 @@ def test_weather_settings_allow_provider_endpoint_replacement() -> None:
     assert settings.weather_base_url == "https://weather.example.test"
 
 
-def test_opgg_tft_settings_use_the_documented_remote_endpoint_by_default() -> None:
-    config = importlib.import_module("app.config")
-
-    settings = config.load_opgg_tft_settings({})
-
-    assert settings.mcp_url == "https://mcp-api.op.gg/mcp"
-    assert settings.cache_ttl_seconds == 300.0
-
-
-def test_opgg_tft_settings_accept_a_url_and_cache_ttl() -> None:
-    config = importlib.import_module("app.config")
-
-    settings = config.load_opgg_tft_settings(
-        {
-            "OPGG_MCP_URL": "https://opgg.example/mcp",
-            "OPGG_TFT_CACHE_TTL_SECONDS": "45",
-        }
-    )
-
-    assert settings.mcp_url == "https://opgg.example/mcp"
-    assert settings.cache_ttl_seconds == 45.0
-
-
 def test_non_local_environment_requires_secure_cookie() -> None:
     config = importlib.import_module("app.config")
 
