@@ -62,6 +62,10 @@ AGENT_TOOL_DURATION_SECONDS = Histogram(
     "Duration of model-facing function tool calls by outcome.",
     labelnames=("tool_name", "outcome"),
 )
+TOOL_CALLS_LIMIT_EXCEEDED_TOTAL = Counter(
+    "tool_calls_limit_exceeded_total",
+    "Total agent runs stopped before tool execution by the tool call limit.",
+)
 CONVERSATION_LOCK_CONFLICTS_TOTAL = Counter(
     "conversation_lock_conflicts_total",
     "Total conversation lock conflicts.",
@@ -80,6 +84,7 @@ METRICS = {
     "llm_stream_failures_total": LLM_STREAM_FAILURES_TOTAL,
     "agent_tool_calls_total": AGENT_TOOL_CALLS_TOTAL,
     "agent_tool_duration_seconds": AGENT_TOOL_DURATION_SECONDS,
+    "tool_calls_limit_exceeded_total": TOOL_CALLS_LIMIT_EXCEEDED_TOTAL,
     "conversation_lock_conflicts_total": CONVERSATION_LOCK_CONFLICTS_TOTAL,
     "db_pool_in_use": DB_POOL_IN_USE,
 }
@@ -132,6 +137,10 @@ def record_agent_tool_call(
     AGENT_TOOL_DURATION_SECONDS.labels(
         tool_name=tool_name, outcome=outcome
     ).observe(duration_seconds)
+
+
+def record_tool_calls_limit_exceeded() -> None:
+    TOOL_CALLS_LIMIT_EXCEEDED_TOTAL.inc()
 
 
 def record_conversation_lock_conflict() -> None:

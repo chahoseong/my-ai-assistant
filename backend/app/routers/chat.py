@@ -29,6 +29,7 @@ from app.observability.metrics import (
     record_llm_stream_duration,
     record_llm_stream_failure,
     record_conversation_lock_conflict,
+    record_tool_calls_limit_exceeded,
 )
 from app.web.schemas import (
     ConversationMessageCreate,
@@ -43,6 +44,7 @@ STREAM_ERROR_MESSAGE = "Unable to generate a response."
 USAGE_LIMIT_ERROR_MESSAGE = "The assistant reached its execution limit."
 TOOL_CALLS_LIMIT = 5
 REQUEST_LIMIT = 8
+TOOL_CALLS_LIMIT_MARKER = "tool_calls_limit"
 
 
 def get_stream_agent():
@@ -105,8 +107,10 @@ async def stream_persisted_message(
                 )
         except asyncio.CancelledError:
             raise
-        except UsageLimitExceeded:
+        except UsageLimitExceeded as error:
             record_llm_stream_failure()
+            if TOOL_CALLS_LIMIT_MARKER in error.message:
+                record_tool_calls_limit_exceeded()
             logger.info("message_stream_usage_limit_exceeded")
             yield {"event": "error", "data": USAGE_LIMIT_ERROR_MESSAGE}
             return

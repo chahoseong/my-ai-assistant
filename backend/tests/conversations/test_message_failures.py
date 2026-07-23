@@ -23,7 +23,10 @@ import app.database.dependencies
 import app.main
 from app.database.models import Conversation, Message, ModelMessageRecord
 from app.model_history import deserialize_model_messages
-from app.observability.metrics import LLM_STREAM_FAILURES_TOTAL
+from app.observability.metrics import (
+    LLM_STREAM_FAILURES_TOTAL,
+    TOOL_CALLS_LIMIT_EXCEEDED_TOTAL,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -91,8 +94,11 @@ class SuccessfulAgent:
 
 
 class UsageLimitedAgent:
+    def __init__(self, message: str) -> None:
+        self.message = message
+
     def run_stream(self, *_: object, **__: object) -> object:
-        raise UsageLimitExceeded("tool call limit exceeded")
+        raise UsageLimitExceeded(self.message)
 
 
 async def collect_messages(test_database, conversation_id: UUID) -> list[Message]:
@@ -198,7 +204,15 @@ async def test_usage_limit_sends_a_distinct_terminal_error_event(
     transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
     conversation_id = UUID(int=503)
     monkeypatch.setattr(app.database.dependencies, "database", test_database)
-    monkeypatch.setattr(app.main, "agent", UsageLimitedAgent())
+    monkeypatch.setattr(
+        app.main,
+        "agent",
+        UsageLimitedAgent(
+            "The next tool call(s) would exceed the tool_calls_limit of 5 "
+            "(tool_calls=6)."
+        ),
+    )
+    before_limit_count = TOOL_CALLS_LIMIT_EXCEEDED_TOTAL._value.get()
 
     user, client = await create_authenticated_client(
         user_factory, session_factory, transport
@@ -218,10 +232,50 @@ async def test_usage_limit_sends_a_distinct_terminal_error_event(
     assert "data: The assistant reached its execution limit." in body
     assert "data: Unable to generate a response." not in body
     assert "event: done" not in body
+    assert TOOL_CALLS_LIMIT_EXCEEDED_TOTAL._value.get() == before_limit_count + 1
     assert [
         message.role
         for message in await collect_messages(test_database, conversation_id)
     ] == ["user"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "limit_message",
+    [
+        "The next request would exceed the request_limit of 8 (requests=9).",
+        "A future Pydantic AI version reported an unknown usage limit.",
+    ],
+)
+async def test_non_tool_usage_limits_do_not_increment_the_tool_calls_limit_counter(
+    limit_message: str,
+    test_database,
+    user_factory,
+    session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = ASGITransport(app=app.main.app, raise_app_exceptions=False)
+    conversation_id = UUID(int=504 if "request_limit" in limit_message else 505)
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(app.main, "agent", UsageLimitedAgent(limit_message))
+    before_limit_count = TOOL_CALLS_LIMIT_EXCEEDED_TOTAL._value.get()
+
+    user, client = await create_authenticated_client(
+        user_factory, session_factory, transport
+    )
+    await create_conversation(test_database, conversation_id, user.id)
+
+    async with client:
+        async with client.stream(
+            "POST",
+            f"/api/conversations/{conversation_id}/messages",
+            json={"message": "reach a different limit"},
+        ) as response:
+            body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "data: The assistant reached its execution limit." in body
+    assert TOOL_CALLS_LIMIT_EXCEEDED_TOTAL._value.get() == before_limit_count
 
 
 @pytest.mark.asyncio
