@@ -53,6 +53,7 @@ class RecordingAgent:
     def __init__(self, _: object, **kwargs: object) -> None:
         self.tools = cast(list[object], kwargs["tools"])
         self.instructions = cast(str, kwargs["instructions"])
+        self.tool_timeout = cast(float, kwargs["tool_timeout"])
 
 
 def test_create_agent_receives_only_explicitly_injected_function_tools(
@@ -77,3 +78,4 @@ def test_create_agent_receives_only_explicitly_injected_function_tools(
 
     assert agent.tools == [tft_describe_meta_decks]
     assert "untrusted data" in agent.instructions
+    assert agent.tool_timeout == 10.0

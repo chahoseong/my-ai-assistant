@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic_ai import ModelRetry
 
 from app.tools.tft_meta_deck_tools import (
     TftMetaDeckSortInput,
@@ -85,14 +86,15 @@ async def test_query_tool_converts_the_typed_condition_and_returns_only_requeste
 
 
 @pytest.mark.asyncio
-async def test_query_tool_returns_a_machine_readable_error_for_invalid_queries(
+async def test_query_tool_requests_a_model_retry_for_invalid_queries(
     tools: TftMetaDeckTools,
 ) -> None:
-    result = await tools.tft_query_meta_decks(
-        fields=["unknown.field"], where=None, sort=None, limit=3
-    )
+    with pytest.raises(ModelRetry) as error:
+        await tools.tft_query_meta_decks(
+            fields=["unknown.field"], where=None, sort=None, limit=3
+        )
 
-    assert result == {"error": {"code": "INVALID_QUERY"}}
+    assert error.value.message.startswith("INVALID_QUERY:")
 
 
 def test_where_input_requires_exactly_one_predicate_or_condition_group() -> None:

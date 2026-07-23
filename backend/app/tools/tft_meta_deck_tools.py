@@ -1,6 +1,7 @@
-from typing import Literal, Self
+from typing import Literal, Never, Self
 
 from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
+from pydantic_ai import ModelRetry
 
 from app.tools.tft_meta_decks import (
     InvalidTftMetaDeckQuery,
@@ -77,7 +78,7 @@ class TftMetaDeckTools:
         try:
             snapshot = await self._snapshot_cache.get_snapshot()
         except (InvalidTftMetaDeckResponse, TftMetaDeckUpstreamUnavailable) as error:
-            return self._error_payload(error)
+            self._raise_model_retry(error)
 
         return {
             "record_count": len(snapshot.records),
@@ -115,9 +116,14 @@ class TftMetaDeckTools:
             TftMetaDeckResultTooLarge,
             TftMetaDeckUpstreamUnavailable,
         ) as error:
-            return self._error_payload(error)
+            self._raise_model_retry(error)
         return result.to_payload()
 
     @staticmethod
-    def _error_payload(error: Exception) -> dict[str, object]:
-        return {"error": {"code": error.code}}  # type: ignore[attr-defined]
+    def _raise_model_retry(
+        error: InvalidTftMetaDeckQuery
+        | InvalidTftMetaDeckResponse
+        | TftMetaDeckResultTooLarge
+        | TftMetaDeckUpstreamUnavailable,
+    ) -> Never:
+        raise ModelRetry(f"{error.code}: Retry with a corrected or smaller request.")
