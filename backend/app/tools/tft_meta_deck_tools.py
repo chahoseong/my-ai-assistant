@@ -5,6 +5,7 @@ from typing import Literal, Never, Self
 from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 from pydantic_ai import ModelRetry
 
+from app.observability.logging import get_logger
 from app.observability.metrics import record_agent_tool_call
 from app.tools.tft_meta_decks import (
     InvalidTftMetaDeckQuery,
@@ -18,6 +19,8 @@ from app.tools.tft_meta_decks import (
     TftMetaDeckUpstreamUnavailable,
     TftMetaDeckUpstreamTimeout,
 )
+
+logger = get_logger(__name__)
 
 
 class TftMetaDeckWhereInput(BaseModel):
@@ -137,23 +140,39 @@ class TftMetaDeckTools:
     ) -> dict[str, object]:
         started_at = perf_counter()
         outcome = "failed"
+        error_type: str | None = None
         try:
             result = await operation()
             outcome = "success"
             return result
         except (InvalidTftMetaDeckQuery, TftMetaDeckResultTooLarge) as error:
             outcome = "denied"
+            error_type = type(error).__name__
             self._raise_model_retry(error)
         except TftMetaDeckUpstreamTimeout as error:
             outcome = "timeout"
+            error_type = type(error).__name__
             self._raise_model_retry(error)
         except (InvalidTftMetaDeckResponse, TftMetaDeckUpstreamUnavailable) as error:
+            error_type = type(error).__name__
             self._raise_model_retry(error)
+        except Exception as error:
+            error_type = type(error).__name__
+            raise
         finally:
+            duration_seconds = perf_counter() - started_at
+            if outcome != "success" and error_type is not None:
+                logger.warning(
+                    "agent_tool_call_failed",
+                    tool_name=tool_name,
+                    outcome=outcome,
+                    error_type=error_type,
+                    duration_ms=duration_seconds * 1_000,
+                )
             record_agent_tool_call(
                 tool_name=tool_name,
                 outcome=outcome,
-                duration_seconds=perf_counter() - started_at,
+                duration_seconds=duration_seconds,
             )
 
     @staticmethod
