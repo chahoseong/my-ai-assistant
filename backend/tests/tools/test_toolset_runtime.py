@@ -1,10 +1,13 @@
 from contextlib import AsyncExitStack
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from pydantic_ai.mcp import MCPToolset
 
 from app.config import OpggTftSettings
 from app.tools.toolsets import open_opgg_tft_tools
+from app.tools.weather_toolset import open_weather_toolset
 
 
 pytestmark = pytest.mark.unit
@@ -37,6 +40,19 @@ class FakeMcpClient:
             },
             is_error=False,
         )
+
+
+class FakeMcpToolset:
+    def __init__(self) -> None:
+        self.entered = False
+        self.closed = False
+
+    async def __aenter__(self) -> "FakeMcpToolset":
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -81,3 +97,62 @@ async def test_opgg_startup_failure_is_isolated_to_its_own_runtime() -> None:
 
         # The caller keeps control of the lifespan and can still activate other tools.
         assert stack is not None
+
+
+@pytest.mark.asyncio
+async def test_weather_runtime_opens_a_stdio_toolset_and_closes_it_with_its_stack() -> (
+    None
+):
+    created: list[FakeMcpToolset] = []
+    received_transport: object | None = None
+    toolset_options: dict[str, object] = {}
+
+    def toolset_factory(transport: object, **kwargs: object) -> FakeMcpToolset:
+        nonlocal received_transport
+        received_transport = transport
+        toolset_options.update(kwargs)
+        toolset = FakeMcpToolset()
+        created.append(toolset)
+        return toolset
+
+    environment = {
+        "NOMINATIM_USER_AGENT": "my-ai-assistant-test/0.1",
+        "NOMINATIM_BASE_URL": "https://nominatim.test",
+        "OPEN_METEO_BASE_URL": "https://weather.test",
+    }
+
+    async with AsyncExitStack() as stack:
+        active_tools = await open_weather_toolset(
+            environment,
+            stack=stack,
+            toolset_factory=toolset_factory,
+        )
+
+        assert created[0].entered is True
+        assert active_tools.functions == ()
+        assert active_tools.toolsets == (created[0],)
+        assert toolset_options == {
+            "include_instructions": False,
+            "init_timeout": 10.0,
+            "read_timeout": 10.0,
+        }
+        assert received_transport is not None
+        assert getattr(received_transport, "args") == ["-m", "app.tools.weather_server"]
+        assert getattr(received_transport, "env")["NOMINATIM_USER_AGENT"] == (
+            "my-ai-assistant-test/0.1"
+        )
+
+    assert created[0].closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_weather_runtime_starts_its_mcp_server_and_exposes_weather_tool() -> None:
+    environment = {"NOMINATIM_USER_AGENT": "my-ai-assistant-test/0.1"}
+
+    async with AsyncExitStack() as stack:
+        active_tools = await open_weather_toolset(environment, stack=stack)
+        weather_toolset = cast(MCPToolset[object], active_tools.toolsets[0])
+        tools = await weather_toolset.list_tools()
+
+    assert [tool.name for tool in tools] == ["get_current_weather"]
