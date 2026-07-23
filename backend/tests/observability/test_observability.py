@@ -154,6 +154,8 @@ def test_metrics_match_the_issue_contract() -> None:
         "llm_stream_duration_seconds",
         "llm_stream_deltas_total",
         "llm_stream_failures_total",
+        "agent_tool_calls_total",
+        "agent_tool_duration_seconds",
         "conversation_lock_conflicts_total",
         "db_pool_in_use",
     }
@@ -164,6 +166,8 @@ def test_metrics_match_the_issue_contract() -> None:
         "llm_stream_duration_seconds": (),
         "llm_stream_deltas_total": (),
         "llm_stream_failures_total": (),
+        "agent_tool_calls_total": ("tool_name", "outcome"),
+        "agent_tool_duration_seconds": ("tool_name", "outcome"),
         "conversation_lock_conflicts_total": (),
         "db_pool_in_use": (),
     }
