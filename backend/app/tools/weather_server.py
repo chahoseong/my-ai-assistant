@@ -1,12 +1,16 @@
+import asyncio
 import math
+import os
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from time import monotonic
 from typing import TypedDict
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
+from app.config import load_weather_settings
 
 NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org"
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com"
@@ -26,11 +30,18 @@ class WeatherService:
         geocoder_base_url: str = NOMINATIM_BASE_URL,
         weather_base_url: str = OPEN_METEO_BASE_URL,
         user_agent: str = "my-ai-assistant/0.1",
+        clock: Callable[[], float] = monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._transport = transport
         self._geocoder_base_url = geocoder_base_url.rstrip("/")
         self._weather_base_url = weather_base_url.rstrip("/")
         self._headers = {"User-Agent": user_agent, "Accept": "application/json"}
+        self._clock = clock
+        self._sleep = sleep
+        self._location_cache: dict[str, ResolvedLocation] = {}
+        self._geocoding_lock = asyncio.Lock()
+        self._last_geocoding_at: float | None = None
 
     async def get_current_weather(self, city: str) -> dict[str, object]:
         normalized_city = unicodedata.normalize("NFKC", city).strip()
@@ -41,18 +52,7 @@ class WeatherService:
             async with httpx.AsyncClient(
                 transport=self._transport, headers=self._headers
             ) as client:
-                geocoding_response = await client.get(
-                    f"{self._geocoder_base_url}/search",
-                    params={
-                        "q": normalized_city,
-                        "format": "jsonv2",
-                        "limit": 2,
-                        "featureType": "city",
-                        "accept-language": "ko",
-                    },
-                )
-                geocoding_response.raise_for_status()
-                location = self._parse_location(geocoding_response.json())
+                location = await self._resolve_location(client, normalized_city)
 
                 weather_response = await client.get(
                     f"{self._weather_base_url}/v1/forecast",
@@ -69,6 +69,42 @@ class WeatherService:
             raise
         except (httpx.HTTPError, TypeError, ValueError, KeyError):
             raise ToolError("The weather service is temporarily unavailable.") from None
+
+    async def _resolve_location(
+        self, client: httpx.AsyncClient, normalized_city: str
+    ) -> ResolvedLocation:
+        cached_location = self._location_cache.get(normalized_city)
+        if cached_location is not None:
+            return cached_location
+
+        async with self._geocoding_lock:
+            cached_location = self._location_cache.get(normalized_city)
+            if cached_location is not None:
+                return cached_location
+
+            if self._last_geocoding_at is not None:
+                delay = 1.0 - (self._clock() - self._last_geocoding_at)
+                if delay > 0:
+                    await self._sleep(delay)
+
+            try:
+                geocoding_response = await client.get(
+                    f"{self._geocoder_base_url}/search",
+                    params={
+                        "q": normalized_city,
+                        "format": "jsonv2",
+                        "limit": 2,
+                        "featureType": "city",
+                        "accept-language": "ko",
+                    },
+                )
+            finally:
+                self._last_geocoding_at = self._clock()
+
+            geocoding_response.raise_for_status()
+            location = self._parse_location(geocoding_response.json())
+            self._location_cache[normalized_city] = location
+            return location
 
     @staticmethod
     def _parse_location(payload: object) -> ResolvedLocation:
@@ -144,8 +180,16 @@ def create_weather_server(service: WeatherService | None = None) -> FastMCP:
     return mcp
 
 
-mcp = create_weather_server()
+def create_weather_server_from_environment(env: Mapping[str, str]) -> FastMCP:
+    settings = load_weather_settings(env)
+    return create_weather_server(
+        WeatherService(
+            geocoder_base_url=settings.geocoder_base_url,
+            weather_base_url=settings.weather_base_url,
+            user_agent=settings.geocoder_user_agent,
+        )
+    )
 
 
 if __name__ == "__main__":
-    mcp.run()
+    create_weather_server_from_environment(os.environ).run()

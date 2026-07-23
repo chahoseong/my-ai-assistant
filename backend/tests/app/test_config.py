@@ -29,6 +29,29 @@ def test_load_database_settings_rejects_missing_database_url() -> None:
         config.load_database_settings({})
 
 
+def test_weather_settings_require_an_identifying_geocoder_user_agent() -> None:
+    config = importlib.import_module("app.config")
+
+    with pytest.raises(ValueError, match="NOMINATIM_USER_AGENT"):
+        config.load_weather_settings({})
+
+
+def test_weather_settings_allow_provider_endpoint_replacement() -> None:
+    config = importlib.import_module("app.config")
+
+    settings = config.load_weather_settings(
+        {
+            "NOMINATIM_USER_AGENT": "my-ai-assistant/0.1 (contact@example.com)",
+            "NOMINATIM_BASE_URL": "https://geocoder.example.test",
+            "OPEN_METEO_BASE_URL": "https://weather.example.test",
+        }
+    )
+
+    assert settings.geocoder_user_agent == "my-ai-assistant/0.1 (contact@example.com)"
+    assert settings.geocoder_base_url == "https://geocoder.example.test"
+    assert settings.weather_base_url == "https://weather.example.test"
+
+
 def test_non_local_environment_requires_secure_cookie() -> None:
     config = importlib.import_module("app.config")
 
