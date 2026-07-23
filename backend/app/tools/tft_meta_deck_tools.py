@@ -28,6 +28,7 @@ TFT_DESCRIBE_FIRST_RETRY_INSTRUCTION = (
     "Call tft_describe_meta_decks first, then use only exact returned field paths."
 )
 KOREAN_DECK_NAME_PATH = "name.ko_KR"
+DECK_NAME_PATH_PREFIX = "name."
 _SAFE_INVALID_QUERY_REASONS = frozenset(
     {
         "The query limit must be between 1 and 10.",
@@ -141,11 +142,12 @@ class TftMetaDeckTools:
         limit: int,
     ) -> dict[str, object]:
         snapshot = await self._snapshot_cache.get_snapshot()
+        legacy_name_aliases = self._legacy_name_field_aliases(snapshot)
         public_paths = {
             field.path for field in self._public_field_descriptions(snapshot)
         }
         result = snapshot.query(
-            fields=tuple(fields),
+            fields=tuple(legacy_name_aliases.get(field, field) for field in fields),
             where=where.to_domain_condition() if where is not None else None,
             sort=(
                 TftMetaDeckSort(path=sort_path, direction=sort_direction)
@@ -165,8 +167,20 @@ class TftMetaDeckTools:
             field
             for field in snapshot.describe_fields()
             if field.path == KOREAN_DECK_NAME_PATH
-            or not field.path.startswith("name.")
+            or not field.path.startswith(DECK_NAME_PATH_PREFIX)
         )
+
+    @staticmethod
+    def _legacy_name_field_aliases(snapshot: TftMetaDeckSnapshot) -> dict[str, str]:
+        raw_paths = {field.path for field in snapshot.describe_fields()}
+        if KOREAN_DECK_NAME_PATH not in raw_paths:
+            return {}
+        return {
+            path: KOREAN_DECK_NAME_PATH
+            for path in raw_paths
+            if path.startswith(DECK_NAME_PATH_PREFIX)
+            and path != KOREAN_DECK_NAME_PATH
+        }
 
     async def _run_observed(
         self,

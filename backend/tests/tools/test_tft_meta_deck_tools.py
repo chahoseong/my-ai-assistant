@@ -151,13 +151,20 @@ async def test_query_tool_converts_the_typed_condition_and_returns_only_requeste
 
 
 @pytest.mark.asyncio
-async def test_query_tool_requests_a_model_retry_for_invalid_queries(
+async def test_query_tool_translates_legacy_english_name_fields_to_korean(
+    tools: TftMetaDeckTools,
+) -> None:
+    result = await tools.tft_query_meta_decks(fields=["name.en_US"], limit=3)
+
+    assert result["records"] == [{"name": {"ko_KR": "테스트 덱"}}]
+
+
+@pytest.mark.asyncio
+async def test_query_tool_requests_a_model_retry_for_unknown_field_paths(
     tools: TftMetaDeckTools,
 ) -> None:
     with pytest.raises(ModelRetry) as error:
-        await tools.tft_query_meta_decks(
-            fields=["name.en_US"], limit=3
-        )
+        await tools.tft_query_meta_decks(fields=["unknown.field"], limit=3)
 
     assert error.value.message == (
         "INVALID_QUERY: A requested field path is not available. "
