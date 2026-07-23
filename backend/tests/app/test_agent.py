@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import app.agent
@@ -52,16 +52,18 @@ def test_build_message_history_restores_canonical_database_records() -> None:
 class RecordingAgent:
     def __init__(self, _: object, **kwargs: object) -> None:
         self.tools = cast(list[object], kwargs["tools"])
+        self.toolsets = cast(list[object], kwargs["toolsets"])
         self.instructions = cast(str, kwargs["instructions"])
         self.tool_timeout = cast(float, kwargs["tool_timeout"])
 
 
-def test_create_agent_receives_only_explicitly_injected_function_tools(
+def test_create_agent_receives_only_explicitly_injected_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def tft_describe_meta_decks() -> dict[str, object]:
         return {}
 
+    weather_toolset = cast(Any, object())
     monkeypatch.setattr(app.agent, "Agent", RecordingAgent)
 
     agent = cast(
@@ -73,9 +75,11 @@ def test_create_agent_receives_only_explicitly_injected_function_tools(
                 api_key="test-key",
             ),
             tools=[tft_describe_meta_decks],
+            toolsets=[weather_toolset],
         ),
     )
 
     assert agent.tools == [tft_describe_meta_decks]
+    assert agent.toolsets == [weather_toolset]
     assert "untrusted data" in agent.instructions
     assert agent.tool_timeout == 10.0

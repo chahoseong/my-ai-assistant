@@ -9,6 +9,7 @@ from pydantic_ai import (
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.toolsets import AbstractToolset
 
 from app.database.models import ModelMessageRecord
 from app.model_history import deserialize_model_messages
@@ -39,7 +40,12 @@ def load_llama_settings(env: Mapping[str, str] | None = None) -> LlamaSettings:
     )
 
 
-def create_agent(settings: LlamaSettings, *, tools: Sequence[Any] = ()) -> Agent:
+def create_agent(
+    settings: LlamaSettings,
+    *,
+    tools: Sequence[Any] = (),
+    toolsets: Sequence[AbstractToolset[Any]] = (),
+) -> Agent:
     model = OpenAIChatModel(
         settings.model,
         provider=OpenAIProvider(
@@ -50,6 +56,7 @@ def create_agent(settings: LlamaSettings, *, tools: Sequence[Any] = ()) -> Agent
     return Agent(
         model,
         tools=tools,
+        toolsets=toolsets,
         instructions=EXTERNAL_TOOL_RESULTS_INSTRUCTION,
         tool_timeout=TOOL_TIMEOUT_SECONDS,
     )
