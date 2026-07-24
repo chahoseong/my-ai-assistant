@@ -20,7 +20,9 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 WEATHER_RESPONSE_INSTRUCTIONS = """
 Use the weather data to answer the user's request directly. Do not unnecessarily expose
 implementation-specific field names, numeric codes, raw JSON, identifiers, or debug details.
-Separate facts observed in the data from any interpretation or advice.
+Use current conditions only for the present, and use today's forecast for questions about
+later today or rain. Do not infer a forecast from current conditions. Separate facts observed
+in the data from any interpretation or advice.
 """.strip()
 
 

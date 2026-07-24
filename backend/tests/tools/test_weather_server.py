@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.asyncio
-async def test_weather_service_resolves_korean_city_and_returns_current_weather() -> None:
+async def test_weather_service_returns_current_conditions_and_todays_rain_forecast() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -49,6 +49,11 @@ async def test_weather_service_resolves_korean_city_and_returns_current_weather(
             "latitude": "37.5666791",
             "longitude": "126.9782914",
             "current": "temperature_2m,weather_code",
+            "daily": (
+                "weather_code,temperature_2m_min,temperature_2m_max,"
+                "precipitation_probability_max,precipitation_sum"
+            ),
+            "forecast_days": "1",
             "timezone": "auto",
         }
         return httpx.Response(
@@ -59,6 +64,14 @@ async def test_weather_service_resolves_korean_city_and_returns_current_weather(
                     "time": "2026-07-23T14:00",
                     "temperature_2m": 31.2,
                     "weather_code": 1,
+                },
+                "daily": {
+                    "time": ["2026-07-23"],
+                    "weather_code": [63],
+                    "temperature_2m_min": [24.1],
+                    "temperature_2m_max": [32.4],
+                    "precipitation_probability_max": [60],
+                    "precipitation_sum": [2.1],
                 },
             },
         )
@@ -74,12 +87,20 @@ async def test_weather_service_resolves_korean_city_and_returns_current_weather(
 
     assert weather == {
         "location": "서울특별시, 대한민국",
-        "latitude": 37.5666791,
-        "longitude": 126.9782914,
-        "temperature_celsius": 31.2,
-        "weather_code": 1,
         "timezone": "Asia/Seoul",
-        "observed_at": "2026-07-23T14:00",
+        "current": {
+            "temperature_celsius": 31.2,
+            "condition": "대체로 맑음",
+            "observed_at": "2026-07-23T14:00",
+        },
+        "today": {
+            "date": "2026-07-23",
+            "condition": "비",
+            "temperature_min_celsius": 24.1,
+            "temperature_max_celsius": 32.4,
+            "precipitation_probability_max_percent": 60,
+            "precipitation_sum_millimeters": 2.1,
+        },
     }
     assert requests[0].headers["user-agent"] == "my-ai-assistant-test/0.1"
 
@@ -143,6 +164,14 @@ async def test_weather_service_caches_resolved_city_coordinates() -> None:
                     "temperature_2m": 31.2,
                     "weather_code": 1,
                 },
+                "daily": {
+                    "time": ["2026-07-23"],
+                    "weather_code": [1],
+                    "temperature_2m_min": [24.1],
+                    "temperature_2m_max": [32.4],
+                    "precipitation_probability_max": [0],
+                    "precipitation_sum": [0],
+                },
             },
         )
 
@@ -188,6 +217,14 @@ async def test_weather_service_waits_before_a_second_uncached_geocoding_request(
                     "time": "2026-07-23T14:00",
                     "temperature_2m": 31.2,
                     "weather_code": 1,
+                },
+                "daily": {
+                    "time": ["2026-07-23"],
+                    "weather_code": [1],
+                    "temperature_2m_min": [24.1],
+                    "temperature_2m_max": [32.4],
+                    "precipitation_probability_max": [0],
+                    "precipitation_sum": [0],
                 },
             },
         )

@@ -14,6 +14,36 @@ from app.config import load_weather_settings
 
 NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org"
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com"
+WEATHER_CONDITIONS = {
+    0: "맑음",
+    1: "대체로 맑음",
+    2: "구름 조금",
+    3: "흐림",
+    45: "안개",
+    48: "안개",
+    51: "이슬비",
+    53: "이슬비",
+    55: "이슬비",
+    56: "어는 이슬비",
+    57: "어는 이슬비",
+    61: "비",
+    63: "비",
+    65: "비",
+    66: "어는 비",
+    67: "어는 비",
+    71: "눈",
+    73: "눈",
+    75: "눈",
+    77: "눈",
+    80: "소나기",
+    81: "소나기",
+    82: "소나기",
+    85: "눈 소나기",
+    86: "눈 소나기",
+    95: "뇌우",
+    96: "우박을 동반한 뇌우",
+    99: "우박을 동반한 뇌우",
+}
 
 
 class ResolvedLocation(TypedDict):
@@ -60,6 +90,11 @@ class WeatherService:
                         "latitude": location["latitude"],
                         "longitude": location["longitude"],
                         "current": "temperature_2m,weather_code",
+                        "daily": (
+                            "weather_code,temperature_2m_min,temperature_2m_max,"
+                            "precipitation_probability_max,precipitation_sum"
+                        ),
+                        "forecast_days": 1,
                         "timezone": "auto",
                     },
                 )
@@ -139,23 +174,80 @@ class WeatherService:
             raise ToolError("The weather service is temporarily unavailable.")
 
         current = payload.get("current")
+        daily = payload.get("daily")
         timezone = payload.get("timezone")
-        if not isinstance(current, Mapping) or not isinstance(timezone, str):
+        if (
+            not isinstance(current, Mapping)
+            or not isinstance(daily, Mapping)
+            or not isinstance(timezone, str)
+        ):
             raise ToolError("The weather service is temporarily unavailable.")
 
         temperature = WeatherService._finite_float(current.get("temperature_2m"))
         weather_code = WeatherService._finite_float(current.get("weather_code"))
         observed_at = current.get("time")
-        if temperature is None or weather_code is None or not isinstance(observed_at, str):
+        current_condition = WeatherService._weather_condition(weather_code)
+
+        today_date = WeatherService._daily_string(daily, "time")
+        today_weather_code = WeatherService._daily_number(daily, "weather_code")
+        today_condition = WeatherService._weather_condition(today_weather_code)
+        temperature_min = WeatherService._daily_number(daily, "temperature_2m_min")
+        temperature_max = WeatherService._daily_number(daily, "temperature_2m_max")
+        precipitation_probability = WeatherService._daily_number(
+            daily, "precipitation_probability_max"
+        )
+        precipitation_sum = WeatherService._daily_number(daily, "precipitation_sum")
+
+        if (
+            temperature is None
+            or current_condition is None
+            or not isinstance(observed_at, str)
+            or today_date is None
+            or today_condition is None
+            or temperature_min is None
+            or temperature_max is None
+            or precipitation_probability is None
+            or precipitation_sum is None
+        ):
             raise ToolError("The weather service is temporarily unavailable.")
 
         return {
-            **location,
-            "temperature_celsius": temperature,
-            "weather_code": int(weather_code),
+            "location": location["location"],
             "timezone": timezone,
-            "observed_at": observed_at,
+            "current": {
+                "temperature_celsius": temperature,
+                "condition": current_condition,
+                "observed_at": observed_at,
+            },
+            "today": {
+                "date": today_date,
+                "condition": today_condition,
+                "temperature_min_celsius": temperature_min,
+                "temperature_max_celsius": temperature_max,
+                "precipitation_probability_max_percent": precipitation_probability,
+                "precipitation_sum_millimeters": precipitation_sum,
+            },
         }
+
+    @staticmethod
+    def _daily_string(daily: Mapping[str, object], name: str) -> str | None:
+        values = daily.get(name)
+        if not isinstance(values, list) or not values or not isinstance(values[0], str):
+            return None
+        return values[0]
+
+    @staticmethod
+    def _daily_number(daily: Mapping[str, object], name: str) -> float | None:
+        values = daily.get(name)
+        if not isinstance(values, list) or not values:
+            return None
+        return WeatherService._finite_float(values[0])
+
+    @staticmethod
+    def _weather_condition(weather_code: float | None) -> str | None:
+        if weather_code is None or not weather_code.is_integer():
+            return None
+        return WEATHER_CONDITIONS.get(int(weather_code))
 
     @staticmethod
     def _finite_float(value: object) -> float | None:
@@ -174,7 +266,7 @@ def create_weather_server(service: WeatherService | None = None) -> FastMCP:
 
     @mcp.tool
     async def get_current_weather(city: str) -> dict[str, object]:
-        """Return the current weather for a city after resolving it to coordinates."""
+        """Return current conditions and today's forecast for a city."""
         return await weather_service.get_current_weather(city)
 
     return mcp
