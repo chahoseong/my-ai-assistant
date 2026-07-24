@@ -8,6 +8,7 @@ type DisplayMessage = Message | { id: string; role: 'assistant'; content: string
 type StreamSession = {
   userMessage: Message
   assistantMessage: Extract<DisplayMessage, { role: 'assistant' }>
+  toolSelectionMessage: string | null
   error: string | null
   completed: boolean
 }
@@ -50,6 +51,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [toolSelectionMessage, setToolSelectionMessage] = useState<string | null>(null)
   const [responsePerformance, setResponsePerformance] = useState<ResponsePerformance | null>(null)
   const selectedConversationIdRef = useRef<string | null>(conversation?.id ?? null)
   const streamControllersRef = useRef(new Map<string, AbortController>())
@@ -63,8 +65,9 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
 
   useEffect(() => {
     setResponsePerformance(null)
-    if (conversationId === null) { setMessages([]); setError(null); setLoading(false); return }
+    if (conversationId === null) { setMessages([]); setError(null); setToolSelectionMessage(null); setLoading(false); return }
     const session = streamSessionsRef.current.get(conversationId)
+    setToolSelectionMessage(session?.toolSelectionMessage ?? null)
     if (conversationStatus === 'created') {
       setMessages(session ? previewForCreatedConversation(session) : [])
       setError(session?.error ?? null)
@@ -119,6 +122,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       const session: StreamSession = {
         userMessage: { id: pendingUserId, role: 'user', content: prompt, created_at: new Date().toISOString() },
         assistantMessage: { id: pendingAssistantId, role: 'assistant', content: '', created_at: new Date().toISOString() },
+        toolSelectionMessage: null,
         error: null,
         completed: false,
       }
@@ -127,6 +131,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       messageRevisionRef.current.set(activeConversationId, currentRevision + 1)
       if (createdConversationId === activeConversationId) setMessages(previewForCreatedConversation(session))
       else if (isVisible()) setMessages((current) => mergeStreamSession(current, session))
+      if (createdConversationId === activeConversationId || isVisible()) setToolSelectionMessage(null)
 
       const controller = new AbortController()
       streamControllersRef.current.set(activeConversationId, controller)
@@ -137,7 +142,13 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       let firstDeltaAt: number | null = null
       let lastDeltaAt: number | null = null
       await streamMessage(activeConversationId, prompt, (streamEvent) => {
+        if (streamEvent.event === 'tool_selected') {
+          session.toolSelectionMessage = streamEvent.data.message
+          if (isVisible()) setToolSelectionMessage(streamEvent.data.message)
+        }
         if (streamEvent.event === 'data') {
+          session.toolSelectionMessage = null
+          if (isVisible()) setToolSelectionMessage(null)
           const receivedAt = performance.now()
           firstDeltaAt ??= receivedAt
           lastDeltaAt = receivedAt
@@ -149,9 +160,12 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
         if (streamEvent.event === 'error') {
           streamFailed = true
           session.error = streamEvent.data
-          if (isVisible()) setError(streamEvent.data)
+          session.toolSelectionMessage = null
+          if (isVisible()) { setError(streamEvent.data); setToolSelectionMessage(null) }
         }
         if (streamEvent.event === 'done') {
+          session.toolSelectionMessage = null
+          if (isVisible()) setToolSelectionMessage(null)
           const generationMs = firstDeltaAt === null || lastDeltaAt === null
             ? null
             : lastDeltaAt - firstDeltaAt
@@ -182,6 +196,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       cancelled = reason instanceof DOMException && reason.name === 'AbortError'
       if (cancelled) {
         if (activeConversationId !== null) streamSessionsRef.current.delete(activeConversationId)
+        if (isVisible()) setToolSelectionMessage(null)
         return
       }
       if (reason instanceof InvalidDoneUsageError && activeConversationId !== null && streamStarted) {
@@ -217,6 +232,7 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
       }
 
       if (isVisible()) {
+        setToolSelectionMessage(null)
         const pendingIds = streamStarted ? [pendingAssistantId] : [pendingUserId, pendingAssistantId]
         setMessages((current) => current.filter((item) => !pendingIds.includes(item.id)))
       }
@@ -234,11 +250,13 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
     event.currentTarget.form?.requestSubmit()
   }
 
+  const pendingMessage = toolSelectionMessage ?? '응답을 생성하고 있습니다'
+
   return <section className="chat" aria-label="대화"><header className="chat-header"><h1>{conversation === null ? '새 대화' : '대화'}</h1><p>{conversation === null ? '첫 메시지를 보내 대화를 시작하세요.' : '대화 기록과 응답이 여기에 표시됩니다.'}</p></header>
     <div className="message-list" aria-live="polite">
       {loading && <p className="chat-status">메시지를 불러오는 중…</p>}
       {!loading && messages.length === 0 && <p className="chat-status">무엇을 도와드릴까요?</p>}
-      {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '나' : '어시스턴트'}</strong><p>{message.content || (isStreaming ? '응답을 생성하고 있습니다…' : '')}</p></article>)}
+      {messages.map((message) => <article className={`message message-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '나' : '어시스턴트'}</strong>{message.content ? <p>{message.content}</p> : isStreaming ? <p className="message-pending"><span className="visually-hidden">{pendingMessage}</span><span aria-hidden="true">{pendingMessage}</span><span className="message-pending-dots" aria-hidden="true"><span></span><span></span><span></span></span></p> : <p></p>}</article>)}
     </div>
     <footer className="composer-area">{responsePerformance && <section className="response-performance" aria-label="최근 응답 사용량 및 성능">
       <h2>최근 응답</h2>
@@ -249,6 +267,6 @@ export function ChatView({ conversation, onCreateConversation, onStreamingChange
         <div><dt>TTFT</dt><dd>{formatTtft(responsePerformance.ttftMs)}</dd></div>
         <div><dt>생성 속도</dt><dd>{formatGenerationSpeed(responsePerformance.generationTokensPerSecond)}</dd></div>
       </dl>
-    </section>}{error && <p className="chat-error" role="alert">{error}</p>}<form className="chat-composer" onSubmit={(event) => void send(event)}><label htmlFor="message">메시지</label><textarea id="message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="메시지를 입력하세요" maxLength={8000} rows={3} disabled={isStreaming} /><p className="composer-hint">Enter로 전송 · Shift + Enter로 줄바꿈</p><button className="primary-button" disabled={isStreaming || !draft.trim()}>{isStreaming ? '응답 생성 중…' : '보내기'}</button></form></footer>
+    </section>}{error && <p className="chat-error" role="alert">{error}</p>}<form className="chat-composer" onSubmit={(event) => void send(event)}><label htmlFor="message">메시지</label><textarea id="message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="메시지를 입력하세요" maxLength={8000} rows={3} disabled={isStreaming} /><p className="composer-hint">Enter로 전송 · Shift + Enter로 줄바꿈</p><button className="primary-button" disabled={isStreaming || !draft.trim()}>{isStreaming ? '응답 생성 중…' : '보내기'}</button></form><p className="geocoding-attribution">위치 검색 데이터: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></p></footer>
   </section>
 }

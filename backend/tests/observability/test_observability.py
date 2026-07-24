@@ -1,8 +1,17 @@
 import json
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from httpx import AsyncClient
+from pydantic_ai import (
+    AgentRunResultEvent,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
+from pydantic_ai.messages import PartStartEvent
+from pydantic_ai.usage import RunUsage
 import pytest
 
 
@@ -20,7 +29,9 @@ from app.observability.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
     LLM_FIRST_TOKEN_SECONDS,
+    MCP_TOOLSET_UP,
     METRICS,
+    set_mcp_toolset_up,
 )
 from app.auth.security import hash_password
 
@@ -28,24 +39,36 @@ pytestmark = [pytest.mark.integration, pytest.mark.contract]
 
 
 class SuccessfulStream:
-    async def __aenter__(self) -> "SuccessfulStream":
-        return self
+    def __init__(self) -> None:
+        self.usage = RunUsage()
+
+    async def __aenter__(self):
+        async def iterate():
+            yield PartStartEvent(index=0, part=TextPart("safe assistant response"))
+            yield AgentRunResultEvent(result=cast(Any, self))
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
 
-    async def stream_text(self, *, delta: bool):
-        assert delta is True
-        yield "safe assistant response"
+    def new_messages(self):
+        return [
+            ModelRequest(parts=[UserPromptPart("canonical user prompt")]),
+            ModelResponse(parts=[TextPart("safe assistant response")]),
+        ]
 
 
 class SuccessfulAgent:
-    def run_stream(self, *_: object, **__: object) -> SuccessfulStream:
+    def run_stream_events(self, *_: object, **__: object) -> SuccessfulStream:
         return SuccessfulStream()
 
 
 class RecordingSession:
     def add(self, _: object) -> None:
+        return None
+
+    def add_all(self, _: object) -> None:
         return None
 
     async def commit(self) -> None:
@@ -118,6 +141,7 @@ async def test_stream_logs_exact_ttft_without_prompt_content(
             UUID(int=1),
             prompt,
             [],
+            0,
             cast(ConversationLease, RecordingLease()),
         )
     ]
@@ -139,8 +163,12 @@ def test_metrics_match_the_issue_contract() -> None:
         "llm_stream_duration_seconds",
         "llm_stream_deltas_total",
         "llm_stream_failures_total",
+        "agent_tool_calls_total",
+        "agent_tool_duration_seconds",
+        "tool_calls_limit_exceeded_total",
         "conversation_lock_conflicts_total",
         "db_pool_in_use",
+        "mcp_toolset_up",
     }
     assert {name: metric._labelnames for name, metric in METRICS.items()} == {
         "http_requests_total": ("method", "path", "status"),
@@ -149,9 +177,21 @@ def test_metrics_match_the_issue_contract() -> None:
         "llm_stream_duration_seconds": (),
         "llm_stream_deltas_total": (),
         "llm_stream_failures_total": (),
+        "agent_tool_calls_total": ("tool_name", "outcome"),
+        "agent_tool_duration_seconds": ("tool_name", "outcome"),
+        "tool_calls_limit_exceeded_total": (),
         "conversation_lock_conflicts_total": (),
         "db_pool_in_use": (),
+        "mcp_toolset_up": ("toolset",),
     }
+
+
+def test_toolset_availability_gauge_reports_the_latest_startup_result() -> None:
+    set_mcp_toolset_up(toolset="weather", is_up=False)
+    assert MCP_TOOLSET_UP.labels(toolset="weather")._value.get() == 0
+
+    set_mcp_toolset_up(toolset="weather", is_up=True)
+    assert MCP_TOOLSET_UP.labels(toolset="weather")._value.get() == 1
 
 
 def test_ttft_histogram_has_buckets_above_ten_seconds() -> None:

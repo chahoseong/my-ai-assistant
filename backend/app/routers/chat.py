@@ -4,7 +4,21 @@ from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic_ai import ModelMessage
+from pydantic_ai import (
+    AgentRunResultEvent,
+    ModelMessage,
+    ModelRequest,
+    UsageLimitExceeded,
+    UserPromptPart,
+)
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
+from pydantic_ai.usage import UsageLimits
 from starlette.background import BackgroundTask
 from sse_starlette import EventSourceResponse
 from sqlalchemy import select
@@ -19,7 +33,8 @@ from app.database.core import Database
 from app.database.dependencies import get_database
 from app.llama import LlamaContextLimitCache
 from app.web.dependencies import CurrentUserForUnsafeRequest, JsonRequest
-from app.database.models import Conversation, Message
+from app.database.models import Conversation, Message, ModelMessageRecord
+from app.model_history import serialize_model_messages
 from app.observability.logging import get_logger
 from app.observability.metrics import (
     record_llm_first_token,
@@ -27,17 +42,24 @@ from app.observability.metrics import (
     record_llm_stream_duration,
     record_llm_stream_failure,
     record_conversation_lock_conflict,
+    record_tool_calls_limit_exceeded,
 )
 from app.web.schemas import (
     ConversationMessageCreate,
     StreamDonePayload,
     StreamUsagePayload,
+    ToolSelectedPayload,
 )
+from app.tools.tool_progress import capture_tool_selection_messages
 
 
 router = APIRouter(prefix="/api/conversations")
 logger = get_logger(__name__)
 STREAM_ERROR_MESSAGE = "Unable to generate a response."
+USAGE_LIMIT_ERROR_MESSAGE = "The assistant reached its execution limit."
+TOOL_CALLS_LIMIT = 5
+REQUEST_LIMIT = 8
+TOOL_CALLS_LIMIT_MARKER = "tool_calls_limit"
 
 
 def get_stream_agent():
@@ -59,6 +81,7 @@ async def stream_persisted_message(
     conversation_id: UUID,
     user_prompt: str,
     message_history: Sequence[ModelMessage],
+    next_sequence: int,
     lease: ConversationLease,
 ) -> AsyncIterator[dict[str, str]]:
     try:
@@ -66,23 +89,59 @@ async def stream_persisted_message(
             response_parts: list[str] = []
             stream_started_at = perf_counter()
             first_token_at: float | None = None
-            stream = get_stream_agent().run_stream(
-                user_prompt,
-                message_history=message_history,
-            )
+            with capture_tool_selection_messages() as selection_messages:
+                stream = get_stream_agent().run_stream_events(
+                    user_prompt,
+                    message_history=message_history,
+                    usage_limits=UsageLimits(
+                        tool_calls_limit=TOOL_CALLS_LIMIT,
+                        request_limit=REQUEST_LIMIT,
+                    ),
+                )
 
-            async with stream as result:
-                async for token in result.stream_text(delta=True):
-                    if first_token_at is None:
-                        first_token_at = perf_counter()
-                        ttft_seconds = first_token_at - stream_started_at
-                        record_llm_first_token(ttft_seconds)
-                        logger.info("llm_first_token", ttft_ms=ttft_seconds * 1_000)
+                result = None
+                async with stream as events:
+                    async for event in events:
+                        if isinstance(event, FunctionToolCallEvent):
+                            message = selection_messages.get(event.part.tool_name)
+                            if message is not None:
+                                yield {
+                                    "event": "tool_selected",
+                                    "data": ToolSelectedPayload(
+                                        message=message
+                                    ).model_dump_json(),
+                                }
+                            continue
 
-                    record_llm_stream_delta()
-                    response_parts.append(token)
-                    yield {"data": token}
+                        token: str | None = None
+                        if isinstance(event, PartStartEvent) and isinstance(
+                            event.part, TextPart
+                        ):
+                            token = event.part.content
+                        elif isinstance(event, PartDeltaEvent) and isinstance(
+                            event.delta, TextPartDelta
+                        ):
+                            token = event.delta.content_delta
+                        elif isinstance(event, AgentRunResultEvent):
+                            result = event.result
 
+                        if token:
+                            if first_token_at is None:
+                                first_token_at = perf_counter()
+                                ttft_seconds = first_token_at - stream_started_at
+                                record_llm_first_token(ttft_seconds)
+                                logger.info(
+                                    "llm_first_token", ttft_ms=ttft_seconds * 1_000
+                                )
+
+                            record_llm_stream_delta()
+                            response_parts.append(token)
+                            yield {"data": token}
+
+                if result is None:
+                    raise RuntimeError("The model stream ended without a result.")
+
+                new_message_payloads = serialize_model_messages(result.new_messages()[1:])
                 record_llm_stream_duration(perf_counter() - stream_started_at)
                 usage = result.usage
                 done_payload = StreamDonePayload(
@@ -94,6 +153,13 @@ async def stream_persisted_message(
                 )
         except asyncio.CancelledError:
             raise
+        except UsageLimitExceeded as error:
+            record_llm_stream_failure()
+            if TOOL_CALLS_LIMIT_MARKER in error.message:
+                record_tool_calls_limit_exceeded()
+            logger.info("message_stream_usage_limit_exceeded")
+            yield {"event": "error", "data": USAGE_LIMIT_ERROR_MESSAGE}
+            return
         except Exception:
             record_llm_stream_failure()
             logger.error("message_stream_failed")
@@ -108,6 +174,14 @@ async def stream_persisted_message(
                     content="".join(response_parts),
                 )
                 session.add(assistant_message)
+                session.add_all(
+                    ModelMessageRecord(
+                        conversation_id=conversation_id,
+                        sequence=next_sequence + offset,
+                        payload=payload,
+                    )
+                    for offset, payload in enumerate(new_message_payloads)
+                )
                 await session.commit()
 
             yield {"event": "done", "data": done_payload.model_dump_json()}
@@ -163,17 +237,33 @@ async def send_message(
         async with database.session_factory() as session:
             try:
                 result = await session.scalars(
-                    select(Message)
-                    .where(Message.conversation_id == conversation_id)
-                    .order_by(Message.created_at.asc(), Message.id.asc())
+                    select(ModelMessageRecord)
+                    .where(ModelMessageRecord.conversation_id == conversation_id)
+                    .order_by(ModelMessageRecord.sequence.asc())
                 )
-                history = build_message_history(list(result))
+                stored_model_messages = list(result)
+                history = build_message_history(stored_model_messages)
+                user_message_payload = serialize_model_messages(
+                    [ModelRequest(parts=[UserPromptPart(payload.message)])]
+                )[0]
+                next_sequence = (
+                    stored_model_messages[-1].sequence + 1
+                    if stored_model_messages
+                    else 0
+                )
 
                 session.add(
                     Message(
                         conversation_id=conversation_id,
                         role="user",
                         content=payload.message,
+                    )
+                )
+                session.add(
+                    ModelMessageRecord(
+                        conversation_id=conversation_id,
+                        sequence=next_sequence,
+                        payload=user_message_payload,
                     )
                 )
                 await session.commit()
@@ -191,6 +281,7 @@ async def send_message(
                 conversation_id,
                 payload.message,
                 history,
+                next_sequence + 1,
                 lease,
             ),
             background=BackgroundTask(lease.release),

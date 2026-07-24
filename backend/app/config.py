@@ -1,7 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
 class DatabaseSettings:
     url: str
@@ -13,6 +12,27 @@ def load_database_settings(env: Mapping[str, str]) -> DatabaseSettings:
         raise ValueError("DATABASE_URL must be set")
 
     return DatabaseSettings(url=url)
+
+
+@dataclass(frozen=True)
+class WeatherSettings:
+    geocoder_user_agent: str
+    geocoder_base_url: str
+    weather_base_url: str
+
+
+def load_weather_settings(env: Mapping[str, str]) -> WeatherSettings:
+    geocoder_user_agent = env.get("NOMINATIM_USER_AGENT", "").strip()
+    if not geocoder_user_agent:
+        raise ValueError("NOMINATIM_USER_AGENT must be set")
+
+    return WeatherSettings(
+        geocoder_user_agent=geocoder_user_agent,
+        geocoder_base_url=env.get(
+            "NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"
+        ),
+        weather_base_url=env.get("OPEN_METEO_BASE_URL", "https://api.open-meteo.com"),
+    )
 
 
 @dataclass(frozen=True)

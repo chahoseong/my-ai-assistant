@@ -1,6 +1,7 @@
 import importlib
 
 import pytest
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 pytestmark = pytest.mark.contract
@@ -28,6 +29,26 @@ def test_message_metadata_declares_conversation_history_contract() -> None:
     assert {"ck_messages_role"} == {
         constraint.name for constraint in messages.constraints if constraint.name
     }
+
+
+def test_model_message_metadata_declares_agent_history_contract() -> None:
+    models = importlib.import_module("app.database.models")
+
+    model_messages = models.ModelMessageRecord.__table__
+
+    assert model_messages.name == "model_messages"
+    assert model_messages.c.id.primary_key
+    assert model_messages.c.conversation_id.nullable is False
+    assert model_messages.c.sequence.nullable is False
+    assert isinstance(model_messages.c.payload.type, JSONB)
+    assert _foreign_key_ondelete(model_messages, "conversation_id") == "CASCADE"
+    assert {"ix_model_messages_conversation_sequence"} == {
+        index.name for index in model_messages.indexes
+    }
+    assert {"uq_model_messages_conversation_sequence"} <= {
+        constraint.name for constraint in model_messages.constraints if constraint.name
+    }
+    assert "model_messages" in models.Conversation.__mapper__.relationships
 
 
 def test_authentication_metadata_declares_ownership_and_session_contract() -> None:

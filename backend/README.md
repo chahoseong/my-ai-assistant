@@ -17,8 +17,12 @@ docker compose up -d
 새 PowerShell 창에서 다음을 실행합니다.
 
 ```powershell
-dotenvx run -- powershell -NoProfile -Command 'llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080'
+dotenvx run -- powershell -NoProfile -Command 'llama-server -m $env:LLAMA_MODEL_PATH --alias $env:LLM_MODEL_NAME --port 8080 --jinja'
 ```
+
+도구 호출에는 모델별 chat template를 적용하는 `--jinja`가 필요합니다. 이 프로젝트는
+llama.cpp `9982 (99f3dc322)`와 Gemma 도구 호출을 함께 검증했습니다. 다른 버전이나
+모델로 바꾸면 실제 도구 호출 smoke를 다시 실행하세요.
 
 백엔드는 첫 응답 완료 시 llama-server의 `GET /props`에서 컨텍스트 한계
 `default_generation_settings.n_ctx`를 lazy 조회하고 프로세스 수명 동안 캐시합니다.
@@ -60,7 +64,8 @@ Copy-Item .env.example .env
 
 `.env`에서 `LLAMA_MODEL_PATH`에 로컬 GGUF 파일의 절대 경로를 설정하고,
 `POSTGRES_EXPORTER_PASSWORD`에 로컬 PostgreSQL exporter용 비밀번호를 설정합니다.
-실제 비밀번호는 커밋하지 않습니다.
+날씨 도구를 사용하려면 Nominatim 정책에 맞는 식별 가능한
+`NOMINATIM_USER_AGENT`도 설정합니다. 실제 비밀번호와 연락처 정보는 커밋하지 않습니다.
 
 ### 2. dotenvx를 설치합니다
 
@@ -83,3 +88,50 @@ dotenvx run -- uv run alembic upgrade head
 
 Docker Compose는 현재 디렉터리의 `.env`를 자동으로 읽습니다. 호스트에서 실행하는
 FastAPI와 `llama-server`는 `dotenvx run --`이 `.env`를 각 프로세스에 주입합니다.
+
+## 도구와 운영 경계
+
+- 날씨 도구는 도시명을 Nominatim으로 좌표화한 뒤 Open-Meteo를 호출합니다. Nominatim의
+  public endpoint는 application-wide 1 rps, 좌표 cache, 식별 가능한 User-Agent를 전제로
+  합니다. 위치 검색 데이터 출처는 채팅 UI에 항상 표시됩니다.
+- 상세한 도구 단계, 입력값, 결과를 브라우저 SSE나 로그에 노출하지 않습니다. 외부 도구
+  결과는 모델 지시문이 아니라 신뢰하지 않는 데이터로 취급합니다.
+- MCP 도구는 선택 사항으로 다음 메타데이터를 선언해 사용자용 진행 문구를 소유할 수
+  있습니다. 통합 계층은 도구 이름을 중앙에서 매핑하지 않으며, 문구가 없거나 빈 값·120자를
+  초과한 값·잘못된 형식이면 진행 이벤트를 보내지 않습니다.
+
+  ```python
+  @mcp.tool(meta={
+      "my_ai_assistant": {
+          "selection_message": "현재 날씨를 확인하고 있어요.",
+      }
+  })
+  async def get_current_weather(city: str) -> dict[str, object]:
+      ...
+  ```
+
+## 관측성
+
+Grafana의 **Tool** row는 다음 운영 질문을 답합니다.
+
+- 어떤 모델용 도구가 `success`, `failed`, `timeout`, `denied` 결과로 얼마나 호출되는가
+- 어떤 도구의 p95 호출 시간이 느려졌는가
+- agent가 `tool_calls_limit=5`를 자주 초과하는가
+- 시작 시 각 MCP 도구 집합이 활성화됐는가
+
+`agent_tool_calls_total`과 `agent_tool_duration_seconds`의 label은 도구 이름과 고정된
+outcome만 사용합니다. 입력 인자와 반환 결과는 metric이나 구조화 로그에 기록하지 않습니다.
+도구 호출의 상세 실시간 trace UI는 제공하지 않습니다.
+
+`mcp_toolset_up{toolset="..."}`은 애플리케이션 시작 중 도구 집합 활성화에 성공하면 `1`,
+실패하면 `0`입니다. 호출마다 갱신되는 상태가 아니라 시작 시점의 가용성 신호입니다.
+
+## Migration과 rollback
+
+`20260723_0004` migration은 모델이 다음 turn에 복원할 정본 이력을 `model_messages`에
+저장합니다. 새 애플리케이션은 이 테이블을 사용하므로 먼저 migration을 적용한 뒤 새
+애플리케이션을 배포해야 합니다.
+
+이 migration의 downgrade는 `model_messages` 테이블과 정본 이력을 삭제합니다. 따라서
+일상적인 application rollback 절차로 자동 실행하지 마세요. 이전 애플리케이션과의 호환성을
+확인하고 백업을 확보한 뒤에만 downgrade를 검토합니다.

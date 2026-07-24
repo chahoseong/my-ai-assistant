@@ -1,9 +1,18 @@
 import asyncio
 from collections.abc import AsyncIterator, Sequence
+from typing import Any, cast
 from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
-from pydantic_ai import ModelMessage
+from pydantic_ai import (
+    AgentRunResultEvent,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
+from pydantic_ai.messages import PartStartEvent
 from pydantic_ai.usage import RunUsage
 import pytest
 
@@ -25,23 +34,30 @@ pytestmark = pytest.mark.integration
 
 
 class BlockingStreamResult:
-    def __init__(self, owner: "BlockingAgent") -> None:
+    def __init__(self, owner: "BlockingAgent", message: str) -> None:
         self.owner = owner
+        self.message = message
         self.usage = RunUsage()
 
-    async def __aenter__(self) -> "BlockingStreamResult":
-        return self
+    async def __aenter__(self) -> AsyncIterator[object]:
+        async def iterate() -> AsyncIterator[object]:
+            self.owner.started_count += 1
+            if self.owner.started_count >= self.owner.expected_started:
+                self.owner.started.set()
+            await self.owner.release.wait()
+            yield PartStartEvent(index=0, part=TextPart("answer"))
+            yield AgentRunResultEvent(result=cast(Any, self))
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
 
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        assert delta is True
-        self.owner.started_count += 1
-        if self.owner.started_count >= self.owner.expected_started:
-            self.owner.started.set()
-        await self.owner.release.wait()
-        yield "answer"
+    def new_messages(self) -> list[ModelMessage]:
+        return [
+            ModelRequest(parts=[UserPromptPart(self.message)]),
+            ModelResponse(parts=[TextPart("answer")]),
+        ]
 
 
 class BlockingAgent:
@@ -51,30 +67,30 @@ class BlockingAgent:
         self.release = asyncio.Event()
         self.started_count = 0
 
-    def run_stream(
+    def run_stream_events(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        **_: object,
     ) -> BlockingStreamResult:
-        return BlockingStreamResult(self)
+        return BlockingStreamResult(self, message)
 
 
 class CancelledStreamResult:
     def __init__(self, started: asyncio.Event) -> None:
         self.started = started
 
-    async def __aenter__(self) -> "CancelledStreamResult":
-        return self
+    async def __aenter__(self) -> AsyncIterator[object]:
+        async def iterate() -> AsyncIterator[object]:
+            self.started.set()
+            await asyncio.Event().wait()
+            yield None
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        assert delta is True
-        self.started.set()
-        await asyncio.Event().wait()
-        yield "unreachable"
 
 
 class CancelThenSuccessAgent:
@@ -83,17 +99,18 @@ class CancelThenSuccessAgent:
         self.second_agent = BlockingAgent()
         self.calls = 0
 
-    def run_stream(
+    def run_stream_events(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
+        **_: object,
     ) -> CancelledStreamResult | BlockingStreamResult:
         self.calls += 1
         if self.calls == 1:
             return CancelledStreamResult(self.first_started)
 
-        return BlockingStreamResult(self.second_agent)
+        return BlockingStreamResult(self.second_agent, message)
 
 
 async def create_conversation(

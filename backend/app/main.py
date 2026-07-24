@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import os
+from contextlib import AsyncExitStack, asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
@@ -12,21 +13,37 @@ from app.auth.dependencies import get_auth_settings
 from app.database.dependencies import dispose_database, get_database
 from app.llama import LlamaContextLimitCache
 from app.observability.logging import configure_observability
-from app.observability.metrics import METRICS_PATH
+from app.observability.metrics import METRICS_PATH, set_mcp_toolset_up
 from app.observability.middleware import RequestObservabilityMiddleware
 from app.routers.conversations import router as conversations_router
 from app.routers.chat import router as chat_router
 from app.routers.messages import router as messages_router
 from app.routers.auth import router as auth_router
+from app.tools.registrations import default_toolset_registrations
+from app.tools.runtime import activate_toolset_registrations
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    global agent
     get_auth_settings()
     get_database()
+    tool_stack = AsyncExitStack()
     try:
+        active_tools = await activate_toolset_registrations(
+            default_toolset_registrations(os.environ),
+            stack=tool_stack,
+            report_availability=set_mcp_toolset_up,
+        )
+        agent = create_agent(
+            llama_settings,
+            tools=active_tools.functions,
+            toolsets=active_tools.toolsets,
+        )
         yield
     finally:
+        await tool_stack.aclose()
+        agent = create_agent(llama_settings)
         await dispose_database()
 
 

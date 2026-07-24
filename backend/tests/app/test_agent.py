@@ -1,35 +1,42 @@
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
+import app.agent
 from pydantic_ai import ModelRequest, ModelResponse, TextPart, UserPromptPart
 import pytest
 
 from app.agent import build_message_history
-from app.database.models import Message
+from app.database.models import ModelMessageRecord
+from app.model_history import serialize_model_messages
 
 
 pytestmark = pytest.mark.unit
 
 
-def test_build_message_history_maps_database_messages_to_model_messages() -> None:
+def test_build_message_history_restores_canonical_database_records() -> None:
     user_time = datetime(2026, 1, 1, tzinfo=UTC)
     assistant_time = datetime(2026, 1, 2, tzinfo=UTC)
-    messages = [
-        Message(
-            id=UUID(int=1),
-            role="user",
-            content="hello",
-            created_at=user_time,
+    canonical_messages = [
+        ModelRequest(
+            parts=[UserPromptPart("hello", timestamp=user_time)],
+            timestamp=user_time,
         ),
-        Message(
-            id=UUID(int=2),
-            role="assistant",
-            content="hi there",
-            created_at=assistant_time,
+        ModelResponse(
+            parts=[TextPart("hi there")],
+            timestamp=assistant_time,
         ),
     ]
+    records = [
+        ModelMessageRecord(
+            id=UUID(int=sequence + 1),
+            sequence=sequence,
+            payload=payload,
+        )
+        for sequence, payload in enumerate(serialize_model_messages(canonical_messages))
+    ]
 
-    history = build_message_history(messages)
+    history = build_message_history(records)
 
     assert len(history) == 2
     assert isinstance(history[0], ModelRequest)
@@ -40,3 +47,39 @@ def test_build_message_history_maps_database_messages_to_model_messages() -> Non
     assert isinstance(history[1].parts[0], TextPart)
     assert history[1].parts[0].content == "hi there"
     assert history[1].timestamp == assistant_time
+
+
+class RecordingAgent:
+    def __init__(self, _: object, **kwargs: object) -> None:
+        self.tools = cast(list[object], kwargs["tools"])
+        self.toolsets = cast(list[object], kwargs["toolsets"])
+        self.instructions = cast(str, kwargs["instructions"])
+        self.tool_timeout = cast(float, kwargs["tool_timeout"])
+
+
+def test_create_agent_receives_only_explicitly_injected_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def example_tool() -> dict[str, object]:
+        return {}
+
+    weather_toolset = cast(Any, object())
+    monkeypatch.setattr(app.agent, "Agent", RecordingAgent)
+
+    agent = cast(
+        RecordingAgent,
+        app.agent.create_agent(
+            app.agent.LlamaSettings(
+                model="test-model",
+                base_url="http://llama.example/v1",
+                api_key="test-key",
+            ),
+            tools=[example_tool],
+            toolsets=[weather_toolset],
+        ),
+    )
+
+    assert agent.tools == [example_tool]
+    assert agent.toolsets == [weather_toolset]
+    assert "untrusted data" in agent.instructions
+    assert agent.tool_timeout == 10.0

@@ -52,6 +52,20 @@ LLM_STREAM_FAILURES_TOTAL = Counter(
     "llm_stream_failures_total",
     "Total failed LLM streams.",
 )
+AGENT_TOOL_CALLS_TOTAL = Counter(
+    "agent_tool_calls_total",
+    "Total model-facing function tool calls by outcome.",
+    labelnames=("tool_name", "outcome"),
+)
+AGENT_TOOL_DURATION_SECONDS = Histogram(
+    "agent_tool_duration_seconds",
+    "Duration of model-facing function tool calls by outcome.",
+    labelnames=("tool_name", "outcome"),
+)
+TOOL_CALLS_LIMIT_EXCEEDED_TOTAL = Counter(
+    "tool_calls_limit_exceeded_total",
+    "Total agent runs stopped before tool execution by the tool call limit.",
+)
 CONVERSATION_LOCK_CONFLICTS_TOTAL = Counter(
     "conversation_lock_conflicts_total",
     "Total conversation lock conflicts.",
@@ -59,6 +73,11 @@ CONVERSATION_LOCK_CONFLICTS_TOTAL = Counter(
 DB_POOL_IN_USE = Gauge(
     "db_pool_in_use",
     "Current number of checked-out SQLAlchemy database connections.",
+)
+MCP_TOOLSET_UP = Gauge(
+    "mcp_toolset_up",
+    "Whether an MCP toolset activated successfully during application startup.",
+    labelnames=("toolset",),
 )
 
 METRICS = {
@@ -68,8 +87,12 @@ METRICS = {
     "llm_stream_duration_seconds": LLM_STREAM_DURATION_SECONDS,
     "llm_stream_deltas_total": LLM_STREAM_DELTAS_TOTAL,
     "llm_stream_failures_total": LLM_STREAM_FAILURES_TOTAL,
+    "agent_tool_calls_total": AGENT_TOOL_CALLS_TOTAL,
+    "agent_tool_duration_seconds": AGENT_TOOL_DURATION_SECONDS,
+    "tool_calls_limit_exceeded_total": TOOL_CALLS_LIMIT_EXCEEDED_TOTAL,
     "conversation_lock_conflicts_total": CONVERSATION_LOCK_CONFLICTS_TOTAL,
     "db_pool_in_use": DB_POOL_IN_USE,
+    "mcp_toolset_up": MCP_TOOLSET_UP,
 }
 METRICS_PATH = "/metrics"
 OTHER_HTTP_METHOD = "OTHER"
@@ -113,8 +136,25 @@ def record_llm_stream_failure() -> None:
     LLM_STREAM_FAILURES_TOTAL.inc()
 
 
+def record_agent_tool_call(
+    *, tool_name: str, outcome: str, duration_seconds: float
+) -> None:
+    AGENT_TOOL_CALLS_TOTAL.labels(tool_name=tool_name, outcome=outcome).inc()
+    AGENT_TOOL_DURATION_SECONDS.labels(
+        tool_name=tool_name, outcome=outcome
+    ).observe(duration_seconds)
+
+
+def record_tool_calls_limit_exceeded() -> None:
+    TOOL_CALLS_LIMIT_EXCEEDED_TOTAL.inc()
+
+
 def record_conversation_lock_conflict() -> None:
     CONVERSATION_LOCK_CONFLICTS_TOTAL.inc()
+
+
+def set_mcp_toolset_up(toolset: str, is_up: bool) -> None:
+    MCP_TOOLSET_UP.labels(toolset=toolset).set(1 if is_up else 0)
 
 
 # Source: https://prometheus.github.io/client_python/instrumenting/gauge/

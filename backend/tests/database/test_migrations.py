@@ -77,3 +77,56 @@ async def test_destructive_migration_rolls_back_legacy_rows_on_failure() -> None
     finally:
         await engine.dispose()
         alembic("upgrade", "head")
+
+
+@pytest.mark.asyncio
+async def test_model_messages_migration_round_trip_uses_test_database() -> None:
+    alembic("downgrade", "20260718_0003")
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
+    try:
+        alembic("upgrade", "head")
+        async with engine.connect() as connection:
+            table_name = await connection.scalar(
+                text("SELECT to_regclass('public.model_messages')")
+            )
+            payload_type = await connection.scalar(
+                text(
+                    "SELECT udt_name FROM information_schema.columns "
+                    "WHERE table_name = 'model_messages' AND column_name = 'payload'"
+                )
+            )
+            constraints = set(
+                (
+                    await connection.scalars(
+                        text(
+                            "SELECT conname FROM pg_constraint "
+                            "WHERE conrelid = 'model_messages'::regclass"
+                        )
+                    )
+                ).all()
+            )
+            foreign_key_delete_action = await connection.scalar(
+                text(
+                    "SELECT confdeltype FROM pg_constraint "
+                    "WHERE conname = 'fk_model_messages_conversation_id_conversations'"
+                )
+            )
+            index_name = await connection.scalar(
+                text("SELECT to_regclass('public.ix_model_messages_conversation_sequence')")
+            )
+
+        assert table_name == "model_messages"
+        assert payload_type == "jsonb"
+        assert "uq_model_messages_conversation_sequence" in constraints
+        assert foreign_key_delete_action == b"c"
+        assert index_name == "ix_model_messages_conversation_sequence"
+
+        alembic("downgrade", "20260718_0003")
+        async with engine.connect() as connection:
+            table_name = await connection.scalar(
+                text("SELECT to_regclass('public.model_messages')")
+            )
+        assert table_name is None
+    finally:
+        await engine.dispose()
+        alembic("upgrade", "head")

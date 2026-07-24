@@ -55,6 +55,10 @@ class StreamDonePayload(BaseModel):
     usage: StreamUsagePayload
 
 
+class ToolSelectedPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=120)
+
+
 class MessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
