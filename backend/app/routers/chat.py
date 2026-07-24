@@ -4,7 +4,20 @@ from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic_ai import ModelMessage, ModelRequest, UsageLimitExceeded, UserPromptPart
+from pydantic_ai import (
+    AgentRunResultEvent,
+    ModelMessage,
+    ModelRequest,
+    UsageLimitExceeded,
+    UserPromptPart,
+)
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.usage import UsageLimits
 from starlette.background import BackgroundTask
 from sse_starlette import EventSourceResponse
@@ -35,7 +48,9 @@ from app.web.schemas import (
     ConversationMessageCreate,
     StreamDonePayload,
     StreamUsagePayload,
+    ToolSelectedPayload,
 )
+from app.tools.tool_progress import capture_tool_selection_messages
 
 
 router = APIRouter(prefix="/api/conversations")
@@ -74,26 +89,57 @@ async def stream_persisted_message(
             response_parts: list[str] = []
             stream_started_at = perf_counter()
             first_token_at: float | None = None
-            stream = get_stream_agent().run_stream(
-                user_prompt,
-                message_history=message_history,
-                usage_limits=UsageLimits(
-                    tool_calls_limit=TOOL_CALLS_LIMIT,
-                    request_limit=REQUEST_LIMIT,
-                ),
-            )
+            with capture_tool_selection_messages() as selection_messages:
+                stream = get_stream_agent().run_stream_events(
+                    user_prompt,
+                    message_history=message_history,
+                    usage_limits=UsageLimits(
+                        tool_calls_limit=TOOL_CALLS_LIMIT,
+                        request_limit=REQUEST_LIMIT,
+                    ),
+                )
 
-            async with stream as result:
-                async for token in result.stream_text(delta=True):
-                    if first_token_at is None:
-                        first_token_at = perf_counter()
-                        ttft_seconds = first_token_at - stream_started_at
-                        record_llm_first_token(ttft_seconds)
-                        logger.info("llm_first_token", ttft_ms=ttft_seconds * 1_000)
+                result = None
+                async with stream as events:
+                    async for event in events:
+                        if isinstance(event, FunctionToolCallEvent):
+                            message = selection_messages.get(event.part.tool_name)
+                            if message is not None:
+                                yield {
+                                    "event": "tool_selected",
+                                    "data": ToolSelectedPayload(
+                                        message=message
+                                    ).model_dump_json(),
+                                }
+                            continue
 
-                    record_llm_stream_delta()
-                    response_parts.append(token)
-                    yield {"data": token}
+                        token: str | None = None
+                        if isinstance(event, PartStartEvent) and isinstance(
+                            event.part, TextPart
+                        ):
+                            token = event.part.content
+                        elif isinstance(event, PartDeltaEvent) and isinstance(
+                            event.delta, TextPartDelta
+                        ):
+                            token = event.delta.content_delta
+                        elif isinstance(event, AgentRunResultEvent):
+                            result = event.result
+
+                        if token:
+                            if first_token_at is None:
+                                first_token_at = perf_counter()
+                                ttft_seconds = first_token_at - stream_started_at
+                                record_llm_first_token(ttft_seconds)
+                                logger.info(
+                                    "llm_first_token", ttft_ms=ttft_seconds * 1_000
+                                )
+
+                            record_llm_stream_delta()
+                            response_parts.append(token)
+                            yield {"data": token}
+
+                if result is None:
+                    raise RuntimeError("The model stream ended without a result.")
 
                 new_message_payloads = serialize_model_messages(result.new_messages()[1:])
                 record_llm_stream_duration(perf_counter() - stream_started_at)

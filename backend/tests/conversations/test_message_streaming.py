@@ -1,16 +1,26 @@
 import json
+from contextlib import contextmanager
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import (
+    AgentRunResultEvent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
     UserPromptPart,
     UsageLimits,
+)
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPartDelta,
+    ToolCallPart,
 )
 from pydantic_ai.usage import RunUsage
 import pytest
@@ -58,7 +68,7 @@ def event_json(body: str, event_name: str) -> dict[str, object]:
     raise AssertionError(f"Missing {event_name} event")
 
 
-class FakeStreamResult:
+class FakeRunResult:
     def __init__(
         self,
         deltas: Sequence[str],
@@ -69,19 +79,23 @@ class FakeStreamResult:
         self.usage = usage
         self._new_messages = new_messages
 
-    async def __aenter__(self) -> "FakeStreamResult":
-        return self
+    def new_messages(self) -> list[ModelMessage]:
+        return list(self._new_messages)
+
+
+class FakeEventStream:
+    def __init__(self, events: Sequence[object]) -> None:
+        self.events = events
+
+    async def __aenter__(self) -> AsyncIterator[object]:
+        async def iterate() -> AsyncIterator[object]:
+            for event in self.events:
+                yield event
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        assert delta is True
-        for value in self.deltas:
-            yield value
-
-    def new_messages(self) -> list[ModelMessage]:
-        return list(self._new_messages)
 
 
 class RecordingAgent:
@@ -90,31 +104,53 @@ class RecordingAgent:
         deltas: Sequence[str],
         *,
         usage: RunUsage | None = None,
+        selected_tool_names: Sequence[str] = (),
     ) -> None:
         self.deltas = deltas
         self.usage = usage or RunUsage()
         self.message: str | None = None
         self.message_history: Sequence[ModelMessage] | None = None
         self.usage_limits: UsageLimits | None = None
+        self.selected_tool_names = selected_tool_names
 
-    def run_stream(
+    def run_stream_events(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
         usage_limits: UsageLimits | None = None,
-    ) -> FakeStreamResult:
+    ) -> FakeEventStream:
         self.message = message
         self.message_history = message_history
         self.usage_limits = usage_limits
-        return FakeStreamResult(
-            self.deltas,
-            self.usage,
-            [
-                ModelRequest(parts=[UserPromptPart(message)]),
-                ModelResponse(parts=[TextPart("".join(self.deltas))]),
-            ],
+        events: list[object] = [
+            FunctionToolCallEvent(
+                ToolCallPart(tool_name=tool_name, args={"city": "서울"})
+            )
+            for tool_name in self.selected_tool_names
+        ]
+        if self.deltas:
+            events.append(PartStartEvent(index=0, part=TextPart(self.deltas[0])))
+            events.extend(
+                PartDeltaEvent(index=0, delta=TextPartDelta(delta))
+                for delta in self.deltas[1:]
+            )
+        events.append(
+            AgentRunResultEvent(
+                result=cast(
+                    Any,
+                    FakeRunResult(
+                        self.deltas,
+                        self.usage,
+                        [
+                            ModelRequest(parts=[UserPromptPart(message)]),
+                            ModelResponse(parts=[TextPart("".join(self.deltas))]),
+                        ],
+                    ),
+                )
+            )
         )
+        return FakeEventStream(events)
 
 
 class StubContextLimitCache:
@@ -298,6 +334,83 @@ async def test_send_message_streams_persists_complete_turn_and_records_metrics(
         == before_duration_count + 1
     )
     assert LLM_STREAM_DELTAS_TOTAL._value.get() == before_delta_count + 2
+
+
+@pytest.mark.asyncio
+async def test_send_message_streams_only_the_tool_owned_selection_message(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(
+        app.main,
+        "agent",
+        RecordingAgent(["확인했습니다."], selected_tool_names=["get_current_weather"]),
+    )
+
+    @contextmanager
+    def selected_weather_message():
+        yield {"get_current_weather": "현재 날씨를 확인하고 있어요."}
+
+    monkeypatch.setattr(
+        chat_router,
+        "capture_tool_selection_messages",
+        selected_weather_message,
+    )
+    conversation_id = UUID(int=408)
+    async with test_database.session_factory() as session:
+        session.add(
+            Conversation(id=conversation_id, user_id=authenticated_user[0].id)
+        )
+        await session.commit()
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "서울 날씨 알려줘"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert event_json(body, "tool_selected") == {
+        "message": "현재 날씨를 확인하고 있어요."
+    }
+    assert body.index("event: tool_selected") < body.index("data: 확인했습니다.")
+    assert "get_current_weather" not in body
+    assert "서울" not in body
+
+
+@pytest.mark.asyncio
+async def test_send_message_omits_selection_event_for_a_tool_without_metadata(
+    client: AsyncClient,
+    authenticated_user,
+    test_database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app.database.dependencies, "database", test_database)
+    monkeypatch.setattr(
+        app.main,
+        "agent",
+        RecordingAgent(["확인했습니다."], selected_tool_names=["unannotated_tool"]),
+    )
+    conversation_id = UUID(int=409)
+    async with test_database.session_factory() as session:
+        session.add(
+            Conversation(id=conversation_id, user_id=authenticated_user[0].id)
+        )
+        await session.commit()
+
+    async with client.stream(
+        "POST",
+        f"/api/conversations/{conversation_id}/messages",
+        json={"message": "도구를 써줘"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert "event: tool_selected" not in body
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator, Sequence
 import json
+from typing import Any, cast
 from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 from pydantic_ai import (
+    AgentRunResultEvent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -11,6 +13,7 @@ from pydantic_ai import (
     UserPromptPart,
     UsageLimitExceeded,
 )
+from pydantic_ai.messages import PartStartEvent
 from pydantic_ai.usage import RunUsage
 import pytest
 
@@ -31,21 +34,19 @@ from app.observability.metrics import (
 pytestmark = pytest.mark.integration
 
 
-class FailingStreamResult:
+class FailingEventStream:
     def __init__(self, error_message: str = "model unavailable") -> None:
         self.error_message = error_message
 
-    async def __aenter__(self) -> "FailingStreamResult":
-        return self
+    async def __aenter__(self) -> AsyncIterator[object]:
+        async def iterate() -> AsyncIterator[object]:
+            raise RuntimeError(self.error_message)
+            yield None
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        assert delta is True
-        raise RuntimeError(self.error_message)
-        yield "unreachable"
-
 
 class FailingAgent:
     def __init__(self, error_message: str = "model unavailable") -> None:
@@ -56,24 +57,14 @@ class FailingAgent:
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
-    ) -> FailingStreamResult:
-        return FailingStreamResult(self.error_message)
+    ) -> FailingEventStream:
+        return FailingEventStream(self.error_message)
 
 
-class SuccessfulStreamResult:
+class SuccessfulRunResult:
     def __init__(self, message: str) -> None:
         self.message = message
         self.usage = RunUsage()
-
-    async def __aenter__(self) -> "SuccessfulStreamResult":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-    async def stream_text(self, *, delta: bool) -> AsyncIterator[str]:
-        assert delta is True
-        yield "retry answer"
 
     def new_messages(self) -> list[ModelMessage]:
         return [
@@ -82,22 +73,37 @@ class SuccessfulStreamResult:
         ]
 
 
+class SuccessfulEventStream:
+    def __init__(self, result: SuccessfulRunResult) -> None:
+        self.result = result
+
+    async def __aenter__(self) -> AsyncIterator[object]:
+        async def iterate() -> AsyncIterator[object]:
+            yield PartStartEvent(index=0, part=TextPart("retry answer"))
+            yield AgentRunResultEvent(result=cast(Any, self.result))
+
+        return iterate()
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
 class SuccessfulAgent:
-    def run_stream(
+    def run_stream_events(
         self,
         message: str,
         *,
         message_history: Sequence[ModelMessage] | None = None,
         **_: object,
-    ) -> SuccessfulStreamResult:
-        return SuccessfulStreamResult(message)
+    ) -> SuccessfulEventStream:
+        return SuccessfulEventStream(SuccessfulRunResult(message))
 
 
 class UsageLimitedAgent:
     def __init__(self, message: str) -> None:
         self.message = message
 
-    def run_stream(self, *_: object, **__: object) -> object:
+    def run_stream_events(self, *_: object, **__: object) -> object:
         raise UsageLimitExceeded(self.message)
 
 

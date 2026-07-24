@@ -1,9 +1,16 @@
 import json
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from httpx import AsyncClient
-from pydantic_ai import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai import (
+    AgentRunResultEvent,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
+from pydantic_ai.messages import PartStartEvent
 from pydantic_ai.usage import RunUsage
 import pytest
 
@@ -33,15 +40,15 @@ class SuccessfulStream:
     def __init__(self) -> None:
         self.usage = RunUsage()
 
-    async def __aenter__(self) -> "SuccessfulStream":
-        return self
+    async def __aenter__(self):
+        async def iterate():
+            yield PartStartEvent(index=0, part=TextPart("safe assistant response"))
+            yield AgentRunResultEvent(result=cast(Any, self))
+
+        return iterate()
 
     async def __aexit__(self, *args: object) -> None:
         return None
-
-    async def stream_text(self, *, delta: bool):
-        assert delta is True
-        yield "safe assistant response"
 
     def new_messages(self):
         return [
@@ -51,7 +58,7 @@ class SuccessfulStream:
 
 
 class SuccessfulAgent:
-    def run_stream(self, *_: object, **__: object) -> SuccessfulStream:
+    def run_stream_events(self, *_: object, **__: object) -> SuccessfulStream:
         return SuccessfulStream()
 
 
