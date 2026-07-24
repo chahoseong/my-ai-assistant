@@ -1,7 +1,10 @@
+from http import HTTPStatus
 from typing import Any, cast
 
 import pytest
 from fastmcp.exceptions import ToolError
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc
 
@@ -42,13 +45,16 @@ async def test_mcp_tool_callback_records_a_successful_model_facing_tool_call() -
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_callback_records_a_timeout_as_a_model_retryable_error() -> None:
+async def test_mcp_tool_callback_records_a_mcp_request_timeout_as_a_model_retryable_error() -> None:
     async def call_tool(
         _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
     ) -> object:
-        raise TimeoutError("upstream timeout")
+        raise McpError(
+            ErrorData(code=HTTPStatus.REQUEST_TIMEOUT, message="upstream timeout")
+        )
 
     before = tool_call_count(outcome="timeout")
+    before_failed = tool_call_count(outcome="failed")
 
     with pytest.raises(ToolError, match="The tool timed out."):
         await record_mcp_tool_call(
@@ -59,3 +65,51 @@ async def test_mcp_tool_callback_records_a_timeout_as_a_model_retryable_error() 
         )
 
     assert tool_call_count(outcome="timeout") == before + 1
+    assert tool_call_count(outcome="failed") == before_failed
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_callback_preserves_a_bare_timeout_as_a_model_retryable_error() -> None:
+    async def call_tool(
+        _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
+    ) -> object:
+        raise TimeoutError("upstream timeout")
+
+    before = tool_call_count(outcome="timeout")
+    before_failed = tool_call_count(outcome="failed")
+
+    with pytest.raises(ToolError, match="The tool timed out."):
+        await record_mcp_tool_call(
+            cast(RunContext[Any], object()),
+            cast(CallToolFunc, call_tool),
+            "get_current_weather",
+            {"city": "서울"},
+        )
+
+    assert tool_call_count(outcome="timeout") == before + 1
+    assert tool_call_count(outcome="failed") == before_failed
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_callback_preserves_a_non_timeout_mcp_error_as_failed() -> None:
+    error = McpError(ErrorData(code=500, message="upstream failure"))
+
+    async def call_tool(
+        _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
+    ) -> object:
+        raise error
+
+    before = tool_call_count(outcome="failed")
+    before_timeout = tool_call_count(outcome="timeout")
+
+    with pytest.raises(McpError) as raised:
+        await record_mcp_tool_call(
+            cast(RunContext[Any], object()),
+            cast(CallToolFunc, call_tool),
+            "get_current_weather",
+            {"city": "서울"},
+        )
+
+    assert raised.value is error
+    assert tool_call_count(outcome="failed") == before + 1
+    assert tool_call_count(outcome="timeout") == before_timeout

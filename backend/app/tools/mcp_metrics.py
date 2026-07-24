@@ -1,7 +1,9 @@
+from http import HTTPStatus
 from time import monotonic
 from typing import Any
 
 from fastmcp.exceptions import ToolError
+from mcp.shared.exceptions import McpError
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc, ToolResult
 
@@ -19,6 +21,11 @@ async def record_mcp_tool_call(
     outcome = "failed"
     try:
         result = await call_tool(tool_name, tool_args)
+    except McpError as error:
+        if error.error.code != HTTPStatus.REQUEST_TIMEOUT:
+            raise
+        outcome = "timeout"
+        raise ToolError("The tool timed out.") from None
     except TimeoutError:
         outcome = "timeout"
         raise ToolError("The tool timed out.") from None
