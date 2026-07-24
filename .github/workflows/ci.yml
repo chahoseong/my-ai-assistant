@@ -68,7 +68,7 @@ jobs:
           python-version: "3.14"
           working-directory: backend
           enable-cache: true
-          cache-dependency-glob: backend/uv.lock
+          cache-dependency-glob: uv.lock
 
       - name: Install backend dependencies
         run: uv sync --locked
