@@ -4,11 +4,12 @@ import os
 import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from time import monotonic
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from app.config import load_weather_settings
 
@@ -89,17 +90,48 @@ class WeatherService:
                     params={
                         "latitude": location["latitude"],
                         "longitude": location["longitude"],
-                        "current": "temperature_2m,weather_code",
-                        "daily": (
-                            "weather_code,temperature_2m_min,temperature_2m_max,"
-                            "precipitation_probability_max,precipitation_sum"
-                        ),
-                        "forecast_days": 1,
+                        "current": "temperature_2m,weather_code,precipitation",
                         "timezone": "auto",
                     },
                 )
                 weather_response.raise_for_status()
-                return self._parse_weather(weather_response.json(), location)
+                return self._parse_current_weather(weather_response.json(), location)
+        except ToolError:
+            raise
+        except (httpx.HTTPError, TypeError, ValueError, KeyError):
+            raise ToolError("The weather service is temporarily unavailable.") from None
+
+    async def get_daily_forecast(self, city: str, *, days: int = 1) -> dict[str, object]:
+        if not 1 <= days <= 7:
+            raise ToolError("Forecast days must be between 1 and 7.")
+
+        normalized_city = unicodedata.normalize("NFKC", city).strip()
+        if not normalized_city:
+            raise ToolError("A city name is required.")
+
+        try:
+            async with httpx.AsyncClient(
+                transport=self._transport, headers=self._headers
+            ) as client:
+                location = await self._resolve_location(client, normalized_city)
+
+                weather_response = await client.get(
+                    f"{self._weather_base_url}/v1/forecast",
+                    params={
+                        "latitude": location["latitude"],
+                        "longitude": location["longitude"],
+                        "daily": (
+                            "weather_code,temperature_2m_min,temperature_2m_max,"
+                            "precipitation_probability_max,precipitation_sum"
+                        ),
+                        "forecast_days": days,
+                        "timezone": "auto",
+                    },
+                )
+                weather_response.raise_for_status()
+                return self._parse_daily_forecast(
+                    weather_response.json(), location, days
+                )
         except ToolError:
             raise
         except (httpx.HTTPError, TypeError, ValueError, KeyError):
@@ -167,81 +199,110 @@ class WeatherService:
         }
 
     @staticmethod
-    def _parse_weather(
+    def _parse_current_weather(
         payload: object, location: ResolvedLocation
     ) -> dict[str, object]:
         if not isinstance(payload, Mapping):
             raise ToolError("The weather service is temporarily unavailable.")
 
         current = payload.get("current")
-        daily = payload.get("daily")
-        timezone = payload.get("timezone")
-        if (
-            not isinstance(current, Mapping)
-            or not isinstance(daily, Mapping)
-            or not isinstance(timezone, str)
-        ):
+        if not isinstance(current, Mapping):
             raise ToolError("The weather service is temporarily unavailable.")
 
         temperature = WeatherService._finite_float(current.get("temperature_2m"))
         weather_code = WeatherService._finite_float(current.get("weather_code"))
-        observed_at = current.get("time")
+        precipitation = WeatherService._finite_float(current.get("precipitation"))
         current_condition = WeatherService._weather_condition(weather_code)
 
-        today_date = WeatherService._daily_string(daily, "time")
-        today_weather_code = WeatherService._daily_number(daily, "weather_code")
-        today_condition = WeatherService._weather_condition(today_weather_code)
-        temperature_min = WeatherService._daily_number(daily, "temperature_2m_min")
-        temperature_max = WeatherService._daily_number(daily, "temperature_2m_max")
-        precipitation_probability = WeatherService._daily_number(
-            daily, "precipitation_probability_max"
-        )
-        precipitation_sum = WeatherService._daily_number(daily, "precipitation_sum")
-
-        if (
-            temperature is None
-            or current_condition is None
-            or not isinstance(observed_at, str)
-            or today_date is None
-            or today_condition is None
-            or temperature_min is None
-            or temperature_max is None
-            or precipitation_probability is None
-            or precipitation_sum is None
-        ):
+        if temperature is None or current_condition is None or precipitation is None:
             raise ToolError("The weather service is temporarily unavailable.")
 
         return {
             "location": location["location"],
-            "timezone": timezone,
-            "current": {
-                "temperature_celsius": temperature,
-                "condition": current_condition,
-                "observed_at": observed_at,
-            },
-            "today": {
-                "date": today_date,
-                "condition": today_condition,
-                "temperature_min_celsius": temperature_min,
-                "temperature_max_celsius": temperature_max,
-                "precipitation_probability_max_percent": precipitation_probability,
-                "precipitation_sum_millimeters": precipitation_sum,
-            },
+            "temperature_celsius": temperature,
+            "condition": current_condition,
+            "is_precipitating": precipitation > 0,
+            "precipitation_millimeters": precipitation,
         }
 
     @staticmethod
-    def _daily_string(daily: Mapping[str, object], name: str) -> str | None:
-        values = daily.get(name)
-        if not isinstance(values, list) or not values or not isinstance(values[0], str):
-            return None
-        return values[0]
+    def _parse_daily_forecast(
+        payload: object, location: ResolvedLocation, days: int
+    ) -> dict[str, object]:
+        if not isinstance(payload, Mapping):
+            raise ToolError("The weather service is temporarily unavailable.")
+
+        daily = payload.get("daily")
+        if not isinstance(daily, Mapping):
+            raise ToolError("The weather service is temporarily unavailable.")
+
+        dates = WeatherService._daily_values(daily, "time", days)
+        weather_codes = WeatherService._daily_values(daily, "weather_code", days)
+        temperature_mins = WeatherService._daily_values(
+            daily, "temperature_2m_min", days
+        )
+        temperature_maxes = WeatherService._daily_values(
+            daily, "temperature_2m_max", days
+        )
+        precipitation_probabilities = WeatherService._daily_values(
+            daily, "precipitation_probability_max", days
+        )
+        precipitation_sums = WeatherService._daily_values(
+            daily, "precipitation_sum", days
+        )
+        if (
+            dates is None
+            or weather_codes is None
+            or temperature_mins is None
+            or temperature_maxes is None
+            or precipitation_probabilities is None
+            or precipitation_sums is None
+        ):
+            raise ToolError("The weather service is temporarily unavailable.")
+
+        daily_records: list[dict[str, object]] = []
+        for index in range(days):
+            date = dates[index]
+            condition = WeatherService._weather_condition(
+                WeatherService._finite_float(weather_codes[index])
+            )
+            temperature_min = WeatherService._finite_float(temperature_mins[index])
+            temperature_max = WeatherService._finite_float(temperature_maxes[index])
+            precipitation_probability = WeatherService._finite_float(
+                precipitation_probabilities[index]
+            )
+            precipitation_sum = WeatherService._finite_float(precipitation_sums[index])
+            if (
+                not isinstance(date, str)
+                or condition is None
+                or temperature_min is None
+                or temperature_max is None
+                or precipitation_probability is None
+                or precipitation_sum is None
+            ):
+                raise ToolError("The weather service is temporarily unavailable.")
+
+            daily_records.append(
+                {
+                    "date": date,
+                    "condition": condition,
+                    "temperature_min_celsius": temperature_min,
+                    "temperature_max_celsius": temperature_max,
+                    "precipitation_probability_max_percent": precipitation_probability,
+                    "precipitation_sum_millimeters": precipitation_sum,
+                }
+            )
+
+        return {"location": location["location"], "daily": daily_records}
 
     @staticmethod
-    def _daily_number(daily: Mapping[str, object], name: str) -> float | None:
+    def _daily_values(
+        daily: Mapping[str, object], name: str, days: int
+    ) -> list[object] | None:
         values = daily.get(name)
-        if not isinstance(values, list) or not values:
+        if not isinstance(values, list) or len(values) < days:
             return None
-        return WeatherService._finite_float(values[0])
+        return values
 
     @staticmethod
     def _weather_condition(weather_code: float | None) -> str | None:
@@ -266,8 +327,15 @@ def create_weather_server(service: WeatherService | None = None) -> FastMCP:
 
     @mcp.tool
     async def get_current_weather(city: str) -> dict[str, object]:
-        """Return current conditions and today's forecast for a city."""
+        """Return the weather right now for a city, not a future forecast."""
         return await weather_service.get_current_weather(city)
+
+    @mcp.tool
+    async def get_daily_forecast(
+        city: str, days: Annotated[int, Field(ge=1, le=7)] = 1
+    ) -> dict[str, object]:
+        """Return daily forecast records for today and the requested upcoming days."""
+        return await weather_service.get_daily_forecast(city, days=days)
 
     return mcp
 

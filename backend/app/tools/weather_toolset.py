@@ -17,12 +17,18 @@ from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
 WEATHER_INIT_TIMEOUT_SECONDS = 10.0
 WEATHER_READ_TIMEOUT_SECONDS = 10.0
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-WEATHER_RESPONSE_INSTRUCTIONS = """
-Use the weather data to answer the user's request directly. Do not unnecessarily expose
-implementation-specific field names, numeric codes, raw JSON, identifiers, or debug details.
-Use current conditions only for the present, and use today's forecast for questions about
-later today or rain. Do not infer a forecast from current conditions. Separate facts observed
-in the data from any interpretation or advice.
+CURRENT_WEATHER_RESPONSE_INSTRUCTIONS = """
+Use this result only to describe the weather now. Do not infer later weather or a forecast
+from current conditions. Do not expose implementation-specific field names, numeric codes,
+raw JSON, identifiers, or debug details. Separate observed facts from any interpretation or
+advice.
+""".strip()
+
+DAILY_FORECAST_RESPONSE_INSTRUCTIONS = """
+Use these records to answer date-specific or future weather questions. Clearly distinguish a
+forecast from current conditions. Do not expose implementation-specific field names, numeric
+codes, raw JSON, identifiers, or debug details. Separate forecast facts from any
+interpretation or advice.
 """.strip()
 
 
@@ -61,7 +67,8 @@ async def open_weather_toolset(
             ToolResponseGuidanceToolset(
                 wrapped=toolset,
                 response_guidance_by_tool_name={
-                    "get_current_weather": WEATHER_RESPONSE_INSTRUCTIONS,
+                    "get_current_weather": CURRENT_WEATHER_RESPONSE_INSTRUCTIONS,
+                    "get_daily_forecast": DAILY_FORECAST_RESPONSE_INSTRUCTIONS,
                 },
             ),
         )

@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.asyncio
-async def test_weather_service_returns_current_conditions_and_todays_rain_forecast() -> None:
+async def test_weather_service_returns_current_conditions() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -48,12 +48,7 @@ async def test_weather_service_returns_current_conditions_and_todays_rain_foreca
         assert dict(request.url.params) == {
             "latitude": "37.5666791",
             "longitude": "126.9782914",
-            "current": "temperature_2m,weather_code",
-            "daily": (
-                "weather_code,temperature_2m_min,temperature_2m_max,"
-                "precipitation_probability_max,precipitation_sum"
-            ),
-            "forecast_days": "1",
+            "current": "temperature_2m,weather_code,precipitation",
             "timezone": "auto",
         }
         return httpx.Response(
@@ -64,14 +59,7 @@ async def test_weather_service_returns_current_conditions_and_todays_rain_foreca
                     "time": "2026-07-23T14:00",
                     "temperature_2m": 31.2,
                     "weather_code": 1,
-                },
-                "daily": {
-                    "time": ["2026-07-23"],
-                    "weather_code": [63],
-                    "temperature_2m_min": [24.1],
-                    "temperature_2m_max": [32.4],
-                    "precipitation_probability_max": [60],
-                    "precipitation_sum": [2.1],
+                    "precipitation": 0,
                 },
             },
         )
@@ -87,22 +75,98 @@ async def test_weather_service_returns_current_conditions_and_todays_rain_foreca
 
     assert weather == {
         "location": "서울특별시, 대한민국",
-        "timezone": "Asia/Seoul",
-        "current": {
-            "temperature_celsius": 31.2,
-            "condition": "대체로 맑음",
-            "observed_at": "2026-07-23T14:00",
-        },
-        "today": {
-            "date": "2026-07-23",
-            "condition": "비",
-            "temperature_min_celsius": 24.1,
-            "temperature_max_celsius": 32.4,
-            "precipitation_probability_max_percent": 60,
-            "precipitation_sum_millimeters": 2.1,
-        },
+        "temperature_celsius": 31.2,
+        "condition": "대체로 맑음",
+        "is_precipitating": False,
+        "precipitation_millimeters": 0.0,
     }
     assert requests[0].headers["user-agent"] == "my-ai-assistant-test/0.1"
+
+
+@pytest.mark.asyncio
+async def test_weather_service_returns_daily_forecast_for_requested_days() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "nominatim.test":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "display_name": "부천시, 대한민국",
+                        "lat": "37.5034",
+                        "lon": "126.7660",
+                    }
+                ],
+            )
+
+        assert dict(request.url.params) == {
+            "latitude": "37.5034",
+            "longitude": "126.766",
+            "daily": (
+                "weather_code,temperature_2m_min,temperature_2m_max,"
+                "precipitation_probability_max,precipitation_sum"
+            ),
+            "forecast_days": "2",
+            "timezone": "auto",
+        }
+        return httpx.Response(
+            200,
+            json={
+                "timezone": "Asia/Seoul",
+                "daily": {
+                    "time": ["2026-07-24", "2026-07-25"],
+                    "weather_code": [3, 63],
+                    "temperature_2m_min": [24.1, 23.5],
+                    "temperature_2m_max": [31.8, 29.4],
+                    "precipitation_probability_max": [20, 70],
+                    "precipitation_sum": [0.0, 4.6],
+                },
+            },
+        )
+
+    service = WeatherService(
+        transport=httpx.MockTransport(handler),
+        geocoder_base_url="https://nominatim.test",
+        weather_base_url="https://weather.test",
+        user_agent="my-ai-assistant-test/0.1",
+    )
+
+    forecast = await service.get_daily_forecast("부천", days=2)
+
+    assert forecast == {
+        "location": "부천시, 대한민국",
+        "daily": [
+            {
+                "date": "2026-07-24",
+                "condition": "흐림",
+                "temperature_min_celsius": 24.1,
+                "temperature_max_celsius": 31.8,
+                "precipitation_probability_max_percent": 20.0,
+                "precipitation_sum_millimeters": 0.0,
+            },
+            {
+                "date": "2026-07-25",
+                "condition": "비",
+                "temperature_min_celsius": 23.5,
+                "temperature_max_celsius": 29.4,
+                "precipitation_probability_max_percent": 70.0,
+                "precipitation_sum_millimeters": 4.6,
+            },
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_weather_service_rejects_out_of_range_forecast_days() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        pytest.fail("out-of-range days must be rejected before an upstream request")
+
+    service = WeatherService(
+        transport=httpx.MockTransport(handler),
+        user_agent="my-ai-assistant-test/0.1",
+    )
+
+    with pytest.raises(ToolError, match="between 1 and 7"):
+        await service.get_daily_forecast("서울", days=8)
 
 
 @pytest.mark.asyncio
@@ -163,14 +227,7 @@ async def test_weather_service_caches_resolved_city_coordinates() -> None:
                     "time": "2026-07-23T14:00",
                     "temperature_2m": 31.2,
                     "weather_code": 1,
-                },
-                "daily": {
-                    "time": ["2026-07-23"],
-                    "weather_code": [1],
-                    "temperature_2m_min": [24.1],
-                    "temperature_2m_max": [32.4],
-                    "precipitation_probability_max": [0],
-                    "precipitation_sum": [0],
+                    "precipitation": 0,
                 },
             },
         )
@@ -217,14 +274,7 @@ async def test_weather_service_waits_before_a_second_uncached_geocoding_request(
                     "time": "2026-07-23T14:00",
                     "temperature_2m": 31.2,
                     "weather_code": 1,
-                },
-                "daily": {
-                    "time": ["2026-07-23"],
-                    "weather_code": [1],
-                    "temperature_2m_min": [24.1],
-                    "temperature_2m_max": [32.4],
-                    "precipitation_probability_max": [0],
-                    "precipitation_sum": [0],
+                    "precipitation": 0,
                 },
             },
         )
@@ -331,14 +381,17 @@ async def test_weather_service_masks_invalid_weather_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_weather_server_exposes_only_current_weather_tool() -> None:
+async def test_weather_server_exposes_current_and_daily_weather_tools() -> None:
     server = create_weather_server(
         WeatherService(user_agent="my-ai-assistant-test/0.1")
     )
 
     tools = await server.list_tools()
 
-    assert [tool.name for tool in tools] == ["get_current_weather"]
+    assert [tool.name for tool in tools] == [
+        "get_current_weather",
+        "get_daily_forecast",
+    ]
 
 
 @pytest.mark.asyncio
@@ -356,4 +409,7 @@ async def test_weather_server_initializes_over_stdio() -> None:
     async with Client(transport, init_timeout=5) as client:
         tools = await client.list_tools()
 
-    assert [tool.name for tool in tools] == ["get_current_weather"]
+    assert [tool.name for tool in tools] == [
+        "get_current_weather",
+        "get_daily_forecast",
+    ]
