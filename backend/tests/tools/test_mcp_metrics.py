@@ -1,12 +1,16 @@
 from http import HTTPStatus
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from fastmcp.exceptions import ToolError
+from fastmcp.client.transports import StdioTransport
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
-from pydantic_ai import RunContext
-from pydantic_ai.mcp import CallToolFunc
+from pydantic_ai import ModelRetry, RunContext
+from pydantic_ai.mcp import CallToolFunc, MCPToolset
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.toolsets.abstract import ToolsetTool
+from pydantic_ai.usage import RunUsage
 
 from app.observability.metrics import AGENT_TOOL_CALLS_TOTAL
 from app.tools.mcp_metrics import record_mcp_tool_call
@@ -56,7 +60,7 @@ async def test_mcp_tool_callback_records_a_mcp_request_timeout_as_a_model_retrya
     before = tool_call_count(outcome="timeout")
     before_failed = tool_call_count(outcome="failed")
 
-    with pytest.raises(ToolError, match="The tool timed out."):
+    with pytest.raises(ModelRetry, match="The tool timed out."):
         await record_mcp_tool_call(
             cast(RunContext[Any], object()),
             cast(CallToolFunc, call_tool),
@@ -78,7 +82,7 @@ async def test_mcp_tool_callback_preserves_a_bare_timeout_as_a_model_retryable_e
     before = tool_call_count(outcome="timeout")
     before_failed = tool_call_count(outcome="failed")
 
-    with pytest.raises(ToolError, match="The tool timed out."):
+    with pytest.raises(ModelRetry, match="The tool timed out."):
         await record_mcp_tool_call(
             cast(RunContext[Any], object()),
             cast(CallToolFunc, call_tool),
@@ -88,6 +92,39 @@ async def test_mcp_tool_callback_preserves_a_bare_timeout_as_a_model_retryable_e
 
     assert tool_call_count(outcome="timeout") == before + 1
     assert tool_call_count(outcome="failed") == before_failed
+
+
+@pytest.mark.asyncio
+async def test_mcp_toolset_exposes_a_timeout_callback_as_model_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolset = MCPToolset(
+        StdioTransport("unused", []),
+        process_tool_call=record_mcp_tool_call,
+    )
+
+    async def direct_call_tool(
+        _: str, __: dict[str, Any], *, use_task: bool = False
+    ) -> object:
+        del use_task
+        raise McpError(
+            ErrorData(code=HTTPStatus.REQUEST_TIMEOUT, message="upstream timeout")
+        )
+
+    monkeypatch.setattr(toolset, "direct_call_tool", direct_call_tool)
+    context = RunContext(
+        deps=None,
+        model=TestModel(),
+        usage=RunUsage(),
+        max_retries=1,
+    )
+    tool = cast(
+        ToolsetTool[Any],
+        SimpleNamespace(tool_def=SimpleNamespace(metadata=None)),
+    )
+
+    with pytest.raises(ModelRetry, match="The tool timed out."):
+        await toolset.call_tool("get_current_weather", {}, context, tool)
 
 
 @pytest.mark.asyncio

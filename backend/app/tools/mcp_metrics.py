@@ -2,9 +2,8 @@ from http import HTTPStatus
 from time import monotonic
 from typing import Any
 
-from fastmcp.exceptions import ToolError
 from mcp.shared.exceptions import McpError
-from pydantic_ai import RunContext
+from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.mcp import CallToolFunc, ToolResult
 
 from app.observability.metrics import record_agent_tool_call
@@ -25,10 +24,10 @@ async def record_mcp_tool_call(
         if error.error.code != HTTPStatus.REQUEST_TIMEOUT:
             raise
         outcome = "timeout"
-        raise ToolError("The tool timed out.") from None
+        raise ModelRetry("The tool timed out.") from None
     except TimeoutError:
         outcome = "timeout"
-        raise ToolError("The tool timed out.") from None
+        raise ModelRetry("The tool timed out.") from None
     else:
         outcome = "success"
         return result
