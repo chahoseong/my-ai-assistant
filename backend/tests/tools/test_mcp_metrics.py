@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from fastmcp.exceptions import ToolError
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc
 
@@ -41,7 +42,7 @@ async def test_mcp_tool_callback_records_a_successful_model_facing_tool_call() -
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_callback_records_a_timeout_and_reraises_it() -> None:
+async def test_mcp_tool_callback_records_a_timeout_as_a_model_retryable_error() -> None:
     async def call_tool(
         _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
     ) -> object:
@@ -49,7 +50,7 @@ async def test_mcp_tool_callback_records_a_timeout_and_reraises_it() -> None:
 
     before = tool_call_count(outcome="timeout")
 
-    with pytest.raises(TimeoutError, match="upstream timeout"):
+    with pytest.raises(ToolError, match="The tool timed out."):
         await record_mcp_tool_call(
             cast(RunContext[Any], object()),
             cast(CallToolFunc, call_tool),

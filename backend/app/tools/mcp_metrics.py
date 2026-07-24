@@ -1,6 +1,7 @@
 from time import monotonic
 from typing import Any
 
+from fastmcp.exceptions import ToolError
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc, ToolResult
 
@@ -20,7 +21,7 @@ async def record_mcp_tool_call(
         result = await call_tool(tool_name, tool_args)
     except TimeoutError:
         outcome = "timeout"
-        raise
+        raise ToolError("The tool timed out.") from None
     else:
         outcome = "success"
         return result

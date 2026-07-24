@@ -13,7 +13,7 @@ from app.auth.dependencies import get_auth_settings
 from app.database.dependencies import dispose_database, get_database
 from app.llama import LlamaContextLimitCache
 from app.observability.logging import configure_observability
-from app.observability.metrics import METRICS_PATH
+from app.observability.metrics import METRICS_PATH, set_mcp_toolset_up
 from app.observability.middleware import RequestObservabilityMiddleware
 from app.routers.conversations import router as conversations_router
 from app.routers.chat import router as chat_router
@@ -33,6 +33,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         active_tools = await activate_toolset_registrations(
             default_toolset_registrations(os.environ),
             stack=tool_stack,
+            report_availability=set_mcp_toolset_up,
         )
         agent = create_agent(
             llama_settings,

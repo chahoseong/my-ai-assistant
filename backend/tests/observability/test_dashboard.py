@@ -29,3 +29,7 @@ def test_dashboard_exposes_the_bounded_tool_metrics_needed_for_operations() -> N
         "tool_calls_limit_exceeded_total"
         in titles["Tool call limit exceeded rate"]["targets"][0]["expr"]
     )
+    assert (
+        "mcp_toolset_up{job=\"my-ai-assistant\"}"
+        in titles["Toolset availability"]["targets"][0]["expr"]
+    )

@@ -74,6 +74,11 @@ DB_POOL_IN_USE = Gauge(
     "db_pool_in_use",
     "Current number of checked-out SQLAlchemy database connections.",
 )
+MCP_TOOLSET_UP = Gauge(
+    "mcp_toolset_up",
+    "Whether an MCP toolset activated successfully during application startup.",
+    labelnames=("toolset",),
+)
 
 METRICS = {
     "http_requests_total": HTTP_REQUESTS_TOTAL,
@@ -87,6 +92,7 @@ METRICS = {
     "tool_calls_limit_exceeded_total": TOOL_CALLS_LIMIT_EXCEEDED_TOTAL,
     "conversation_lock_conflicts_total": CONVERSATION_LOCK_CONFLICTS_TOTAL,
     "db_pool_in_use": DB_POOL_IN_USE,
+    "mcp_toolset_up": MCP_TOOLSET_UP,
 }
 METRICS_PATH = "/metrics"
 OTHER_HTTP_METHOD = "OTHER"
@@ -145,6 +151,10 @@ def record_tool_calls_limit_exceeded() -> None:
 
 def record_conversation_lock_conflict() -> None:
     CONVERSATION_LOCK_CONFLICTS_TOTAL.inc()
+
+
+def set_mcp_toolset_up(toolset: str, is_up: bool) -> None:
+    MCP_TOOLSET_UP.labels(toolset=toolset).set(1 if is_up else 0)
 
 
 # Source: https://prometheus.github.io/client_python/instrumenting/gauge/

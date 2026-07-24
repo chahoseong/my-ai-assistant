@@ -33,6 +33,7 @@ async def successful_tool() -> str:
 async def test_registration_failure_closes_its_resources_and_keeps_later_tools_active() -> None:
     failed_resource = RecordingResource()
     successful_resource = RecordingResource()
+    states: list[tuple[str, bool]] = []
 
     async def fail_after_acquiring_resource(stack: AsyncExitStack) -> ActiveAgentTools:
         await stack.enter_async_context(failed_resource)
@@ -49,6 +50,7 @@ async def test_registration_failure_closes_its_resources_and_keeps_later_tools_a
                 ToolsetRegistration("successful", activate_successful_tool),
             ),
             stack=app_stack,
+            report_availability=lambda name, is_up: states.append((name, is_up)),
         )
 
         assert failed_resource.entered is True
@@ -56,5 +58,6 @@ async def test_registration_failure_closes_its_resources_and_keeps_later_tools_a
         assert successful_resource.entered is True
         assert successful_resource.closed is False
         assert active_tools.functions == (successful_tool,)
+        assert states == [("failed", False), ("successful", True)]
 
     assert successful_resource.closed is True

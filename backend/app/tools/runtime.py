@@ -32,6 +32,7 @@ async def activate_toolset_registrations(
     registrations: Sequence[ToolsetRegistration],
     *,
     stack: AsyncExitStack,
+    report_availability: Callable[[str, bool], None] | None = None,
 ) -> ActiveAgentTools:
     """Activate each registration independently and retain only successful tools."""
     functions: list[Callable[..., Any]] = []
@@ -51,9 +52,13 @@ async def activate_toolset_registrations(
                 toolset=registration.name,
                 error_type=type(error).__name__,
             )
+            if report_availability is not None:
+                report_availability(registration.name, False)
         else:
             stack.push_async_callback(registration_stack.aclose)
             functions.extend(active_tools.functions)
             toolsets.extend(active_tools.toolsets)
+            if report_availability is not None:
+                report_availability(registration.name, True)
 
     return ActiveAgentTools(functions=tuple(functions), toolsets=tuple(toolsets))

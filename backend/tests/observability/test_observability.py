@@ -29,7 +29,9 @@ from app.observability.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
     LLM_FIRST_TOKEN_SECONDS,
+    MCP_TOOLSET_UP,
     METRICS,
+    set_mcp_toolset_up,
 )
 from app.auth.security import hash_password
 
@@ -166,6 +168,7 @@ def test_metrics_match_the_issue_contract() -> None:
         "tool_calls_limit_exceeded_total",
         "conversation_lock_conflicts_total",
         "db_pool_in_use",
+        "mcp_toolset_up",
     }
     assert {name: metric._labelnames for name, metric in METRICS.items()} == {
         "http_requests_total": ("method", "path", "status"),
@@ -179,7 +182,16 @@ def test_metrics_match_the_issue_contract() -> None:
         "tool_calls_limit_exceeded_total": (),
         "conversation_lock_conflicts_total": (),
         "db_pool_in_use": (),
+        "mcp_toolset_up": ("toolset",),
     }
+
+
+def test_toolset_availability_gauge_reports_the_latest_startup_result() -> None:
+    set_mcp_toolset_up(toolset="weather", is_up=False)
+    assert MCP_TOOLSET_UP.labels(toolset="weather")._value.get() == 0
+
+    set_mcp_toolset_up(toolset="weather", is_up=True)
+    assert MCP_TOOLSET_UP.labels(toolset="weather")._value.get() == 1
 
 
 def test_ttft_histogram_has_buckets_above_ten_seconds() -> None:
