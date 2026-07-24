@@ -50,6 +50,14 @@ export function createConversation(title: string) {
   return request<Conversation>('/api/conversations', jsonRequest({ title }))
 }
 
+export async function deleteConversation(id: string): Promise<void> {
+  const response = await fetch(`/api/conversations/${id}`, {
+    credentials: 'same-origin',
+    method: 'DELETE',
+  })
+  if (!response.ok) throw await errorFrom(response)
+}
+
 export function jsonRequest(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }

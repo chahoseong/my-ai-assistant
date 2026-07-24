@@ -1,16 +1,17 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
+from app.concurrency import ConversationLease, try_acquire_conversation
 from app.database.dependencies import get_session
-from app.web.dependencies import (
-    CurrentUserForUnsafeRequest,
-    JsonRequest,
-)
 from app.database.models import Conversation
 from app.observability.logging import get_logger
+from app.observability.metrics import record_conversation_lock_conflict
+from app.web.dependencies import CurrentUserForUnsafeRequest, JsonRequest
 from app.web.schemas import ConversationCreate, ConversationResponse
 
 
@@ -65,3 +66,55 @@ async def create_conversation(
         ) from exc
 
     return conversation
+
+
+@router.delete(
+    "/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: CurrentUserForUnsafeRequest,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    try:
+        conversation = await session.scalar(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == current_user.id,
+            )
+        )
+    except SQLAlchemyError as exc:
+        logger.error("conversation_delete_failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete conversation.",
+        ) from exc
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+
+    if not await try_acquire_conversation(conversation_id):
+        record_conversation_lock_conflict()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="응답 생성 중에는 삭제할 수 없습니다",
+        )
+
+    lease = ConversationLease(conversation_id)
+    try:
+        try:
+            await session.delete(conversation)
+            await session.commit()
+        except SQLAlchemyError as exc:
+            await session.rollback()
+            logger.error("conversation_delete_failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to delete conversation.",
+            ) from exc
+    finally:
+        await lease.release()

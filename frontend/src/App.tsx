@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AuthView } from './components/AuthView'
 import { ChatView } from './components/ChatView'
-import { ConversationSidebar } from './components/ConversationSidebar'
+import {
+  ConversationSidebar,
+  type DeleteConversationResult,
+} from './components/ConversationSidebar'
 import {
   ApiError,
   createConversation,
+  deleteConversation,
   getCurrentUser,
   listConversations,
   logout,
@@ -111,6 +115,32 @@ function App() {
     setConversations((current) => current.map(withHiddenStatus))
   }, [])
 
+  const removeConversation = useCallback((id: string) => {
+    setConversations((current) => current.filter((conversation) => conversation.id !== id))
+  }, [])
+
+  const handleDeleteConversation = useCallback(async (id: string): Promise<DeleteConversationResult> => {
+    try {
+      await deleteConversation(id)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        becomeAnonymous()
+        return { kind: 'removed' }
+      }
+      if (error instanceof ApiError && error.status === 404) {
+        removeConversation(id)
+        return { kind: 'removed' }
+      }
+      if (error instanceof ApiError && error.status === 409) {
+        return { kind: 'blocked', message: error.message }
+      }
+      throw error
+    }
+
+    removeConversation(id)
+    return { kind: 'removed' }
+  }, [becomeAnonymous, removeConversation])
+
   const handleStreamingChange = useCallback((id: string, isStreaming: boolean) => {
     setConversations((current) => current.map((conversation) => (
       conversation.id === id ? { ...conversation, isStreaming } : conversation
@@ -132,6 +162,7 @@ function App() {
         error={listError}
         selectedConversationId={activeConversation?.id ?? null}
         username={session.user.username}
+        onDelete={handleDeleteConversation}
         onNewConversation={handleNewConversation}
         onRefresh={() => void loadConversations()}
         onSelect={handleSelectConversation}

@@ -17,13 +17,14 @@ def test_openapi_authentication_route_inventory_is_stable() -> None:
         ("get", "/api/auth/me"),
         ("get", "/api/conversations"),
         ("post", "/api/conversations"),
+        ("delete", "/api/conversations/{conversation_id}"),
         ("get", "/api/conversations/{conversation_id}/messages"),
         ("post", "/api/conversations/{conversation_id}/messages"),
     } == {
         (method, path)
         for path, operations in paths.items()
         for method in operations
-        if method in {"get", "post"}
+        if method in {"delete", "get", "post"}
     }
 
 
@@ -33,6 +34,12 @@ def test_openapi_authentication_route_inventory_is_stable() -> None:
     ("method", "path", "json", "expects_json_error"),
     [
         ("post", "/api/conversations", {}, False),
+        (
+            "delete",
+            "/api/conversations/00000000-0000-0000-0000-000000000001",
+            None,
+            False,
+        ),
         (
             "get",
             "/api/conversations/00000000-0000-0000-0000-000000000001/messages",
