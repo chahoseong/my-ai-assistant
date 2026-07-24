@@ -140,9 +140,9 @@ def record_agent_tool_call(
     *, tool_name: str, outcome: str, duration_seconds: float
 ) -> None:
     AGENT_TOOL_CALLS_TOTAL.labels(tool_name=tool_name, outcome=outcome).inc()
-    AGENT_TOOL_DURATION_SECONDS.labels(
-        tool_name=tool_name, outcome=outcome
-    ).observe(duration_seconds)
+    AGENT_TOOL_DURATION_SECONDS.labels(tool_name=tool_name, outcome=outcome).observe(
+        duration_seconds
+    )
 
 
 def record_tool_calls_limit_exceeded() -> None:

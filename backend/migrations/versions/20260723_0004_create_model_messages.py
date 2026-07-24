@@ -54,5 +54,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_model_messages_conversation_sequence", table_name="model_messages")
+    op.drop_index(
+        "ix_model_messages_conversation_sequence", table_name="model_messages"
+    )
     op.drop_table("model_messages")

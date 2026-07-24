@@ -20,7 +20,10 @@ def test_dashboard_exposes_the_bounded_tool_metrics_needed_for_operations() -> N
 
     assert "Tool" in titles
     assert len({panel["id"] for panel in panels}) == len(panels)
-    assert "agent_tool_calls_total" in titles["Tool call rate by outcome"]["targets"][0]["expr"]
+    assert (
+        "agent_tool_calls_total"
+        in titles["Tool call rate by outcome"]["targets"][0]["expr"]
+    )
     assert (
         "agent_tool_duration_seconds_bucket"
         in titles["Tool call duration p95"]["targets"][0]["expr"]
@@ -30,6 +33,6 @@ def test_dashboard_exposes_the_bounded_tool_metrics_needed_for_operations() -> N
         in titles["Tool call limit exceeded rate"]["targets"][0]["expr"]
     )
     assert (
-        "mcp_toolset_up{job=\"my-ai-assistant\"}"
+        'mcp_toolset_up{job="my-ai-assistant"}'
         in titles["Toolset availability"]["targets"][0]["expr"]
     )

@@ -112,7 +112,9 @@ async def test_model_messages_migration_round_trip_uses_test_database() -> None:
                 )
             )
             index_name = await connection.scalar(
-                text("SELECT to_regclass('public.ix_model_messages_conversation_sequence')")
+                text(
+                    "SELECT to_regclass('public.ix_model_messages_conversation_sequence')"
+                )
             )
 
         assert table_name == "model_messages"

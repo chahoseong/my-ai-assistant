@@ -98,10 +98,12 @@ class WeatherService:
                 return self._parse_current_weather(weather_response.json(), location)
         except ToolError:
             raise
-        except (httpx.HTTPError, TypeError, ValueError, KeyError):
+        except httpx.HTTPError, TypeError, ValueError, KeyError:
             raise ToolError("The weather service is temporarily unavailable.") from None
 
-    async def get_daily_forecast(self, city: str, *, days: int = 1) -> dict[str, object]:
+    async def get_daily_forecast(
+        self, city: str, *, days: int = 1
+    ) -> dict[str, object]:
         if not 1 <= days <= 7:
             raise ToolError("Forecast days must be between 1 and 7.")
 
@@ -134,7 +136,7 @@ class WeatherService:
                 )
         except ToolError:
             raise
-        except (httpx.HTTPError, TypeError, ValueError, KeyError):
+        except httpx.HTTPError, TypeError, ValueError, KeyError:
             raise ToolError("The weather service is temporarily unavailable.") from None
 
     async def _resolve_location(
@@ -176,9 +178,13 @@ class WeatherService:
     @staticmethod
     def _parse_location(payload: object) -> ResolvedLocation:
         if not isinstance(payload, list) or not payload:
-            raise ToolError("No matching city was found. Ask the user for a more specific city.")
+            raise ToolError(
+                "No matching city was found. Ask the user for a more specific city."
+            )
         if len(payload) > 1:
-            raise ToolError("Multiple cities matched. Ask the user for a more specific city.")
+            raise ToolError(
+                "Multiple cities matched. Ask the user for a more specific city."
+            )
 
         first = payload[0]
         if not isinstance(first, Mapping):
@@ -316,7 +322,7 @@ class WeatherService:
             return None
         try:
             result = float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         return result if math.isfinite(result) else None
 

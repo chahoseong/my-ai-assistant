@@ -66,9 +66,7 @@ def test_model_message_payloads_round_trip_all_required_part_types() -> None:
     assert serialize_model_messages(restored) == payloads
     assert isinstance(restored[1], ModelResponse)
     assert isinstance(restored[1].parts[0], ThinkingPart)
-    tool_calls = [
-        part for part in restored[1].parts if isinstance(part, ToolCallPart)
-    ]
+    tool_calls = [part for part in restored[1].parts if isinstance(part, ToolCallPart)]
     assert [part.tool_call_id for part in tool_calls] == [
         "weather-call",
         "exchange-rate-call",
