@@ -12,6 +12,7 @@ from app.config import load_weather_settings
 from app.tools.mcp_metrics import record_mcp_tool_call
 from app.tools.response_guidance import ToolResponseGuidanceToolset
 from app.tools.runtime import ActiveAgentTools, ToolsetRegistration
+from app.tools.tool_progress import ToolProgressToolset
 
 
 WEATHER_INIT_TIMEOUT_SECONDS = 10.0
@@ -64,12 +65,14 @@ async def open_weather_toolset(
     )
     return ActiveAgentTools(
         toolsets=(
-            ToolResponseGuidanceToolset(
-                wrapped=toolset,
-                response_guidance_by_tool_name={
-                    "get_current_weather": CURRENT_WEATHER_RESPONSE_INSTRUCTIONS,
-                    "get_daily_forecast": DAILY_FORECAST_RESPONSE_INSTRUCTIONS,
-                },
+            ToolProgressToolset(
+                wrapped=ToolResponseGuidanceToolset(
+                    wrapped=toolset,
+                    response_guidance_by_tool_name={
+                        "get_current_weather": CURRENT_WEATHER_RESPONSE_INSTRUCTIONS,
+                        "get_daily_forecast": DAILY_FORECAST_RESPONSE_INSTRUCTIONS,
+                    },
+                )
             ),
         )
     )

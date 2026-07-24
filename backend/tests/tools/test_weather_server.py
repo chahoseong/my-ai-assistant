@@ -392,6 +392,18 @@ async def test_weather_server_exposes_current_and_daily_weather_tools() -> None:
         "get_current_weather",
         "get_daily_forecast",
     ]
+    assert [tool.meta for tool in tools] == [
+        {
+            "my_ai_assistant": {
+                "selection_message": "현재 날씨를 확인하고 있어요.",
+            }
+        },
+        {
+            "my_ai_assistant": {
+                "selection_message": "일별 날씨 예보를 확인하고 있어요.",
+            }
+        },
+    ]
 
 
 @pytest.mark.asyncio

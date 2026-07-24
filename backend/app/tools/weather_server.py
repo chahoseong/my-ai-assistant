@@ -325,12 +325,24 @@ def create_weather_server(service: WeatherService | None = None) -> FastMCP:
     mcp = FastMCP(name="Weather", mask_error_details=True)
     weather_service = service or WeatherService()
 
-    @mcp.tool
+    @mcp.tool(
+        meta={
+            "my_ai_assistant": {
+                "selection_message": "현재 날씨를 확인하고 있어요.",
+            }
+        }
+    )
     async def get_current_weather(city: str) -> dict[str, object]:
         """Return the weather right now for a city, not a future forecast."""
         return await weather_service.get_current_weather(city)
 
-    @mcp.tool
+    @mcp.tool(
+        meta={
+            "my_ai_assistant": {
+                "selection_message": "일별 날씨 예보를 확인하고 있어요.",
+            }
+        }
+    )
     async def get_daily_forecast(
         city: str, days: Annotated[int, Field(ge=1, le=7)] = 1
     ) -> dict[str, object]:
