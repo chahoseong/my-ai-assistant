@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: local
+      SESSION_COOKIE_SECURE: "false"
+      AUTH_ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+      DATABASE_URL: postgresql+asyncpg://assistant:assistant@127.0.0.1:5432/assistant_dev
+      TEST_DATABASE_URL: postgresql+asyncpg://assistant:assistant@127.0.0.1:5432/assistant_test
+      LLM_MODEL_NAME: google/gemma-4-E4B-it-qat-q4_0-gguf
+      LLM_BASE_URL: http://127.0.0.1:8080/v1
+      LLM_API_KEY: llama.cpp
+      LLAMA_MODEL_PATH: ""
+      NOMINATIM_USER_AGENT: my-ai-assistant-ci/1.0
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_USER: assistant
+          POSTGRES_PASSWORD: assistant
+          POSTGRES_DB: assistant_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assistant -d assistant_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create test database
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: >-
+          docker exec "$POSTGRES_CONTAINER_ID"
+          psql -v ON_ERROR_STOP=1
+          -U assistant
+          -d assistant_dev
+          -c "CREATE DATABASE assistant_test;"
+
+      - name: Set up Node.js for Pyright
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.19"
+          python-version: "3.14"
+          working-directory: backend
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install backend dependencies
+        run: uv sync --locked
+
+      - name: Check backend formatting
+        run: uv run ruff format --check
+
+      - name: Lint backend
+        run: uv run ruff check
+
+      - name: Type-check backend
+        run: uv run pyright
+
+      - name: Test backend
+        run: uv run pytest
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build

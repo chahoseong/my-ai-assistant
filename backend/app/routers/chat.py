@@ -141,7 +141,9 @@ async def stream_persisted_message(
                 if result is None:
                     raise RuntimeError("The model stream ended without a result.")
 
-                new_message_payloads = serialize_model_messages(result.new_messages()[1:])
+                new_message_payloads = serialize_model_messages(
+                    result.new_messages()[1:]
+                )
                 record_llm_stream_duration(perf_counter() - stream_started_at)
                 usage = result.usage
                 done_payload = StreamDonePayload(

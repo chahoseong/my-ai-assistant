@@ -48,6 +48,7 @@ class FailingEventStream:
     async def __aexit__(self, *args: object) -> None:
         return None
 
+
 class FailingAgent:
     def __init__(self, error_message: str = "model unavailable") -> None:
         self.error_message = error_message

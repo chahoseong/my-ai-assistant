@@ -30,7 +30,9 @@ async def successful_tool() -> str:
 
 
 @pytest.mark.asyncio
-async def test_registration_failure_closes_its_resources_and_keeps_later_tools_active() -> None:
+async def test_registration_failure_closes_its_resources_and_keeps_later_tools_active() -> (
+    None
+):
     failed_resource = RecordingResource()
     successful_resource = RecordingResource()
     states: list[tuple[str, bool]] = []

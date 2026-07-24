@@ -361,9 +361,7 @@ async def test_send_message_streams_only_the_tool_owned_selection_message(
     )
     conversation_id = UUID(int=408)
     async with test_database.session_factory() as session:
-        session.add(
-            Conversation(id=conversation_id, user_id=authenticated_user[0].id)
-        )
+        session.add(Conversation(id=conversation_id, user_id=authenticated_user[0].id))
         await session.commit()
 
     async with client.stream(
@@ -397,9 +395,7 @@ async def test_send_message_omits_selection_event_for_a_tool_without_metadata(
     )
     conversation_id = UUID(int=409)
     async with test_database.session_factory() as session:
-        session.add(
-            Conversation(id=conversation_id, user_id=authenticated_user[0].id)
-        )
+        session.add(Conversation(id=conversation_id, user_id=authenticated_user[0].id))
         await session.commit()
 
     async with client.stream(

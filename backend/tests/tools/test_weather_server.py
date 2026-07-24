@@ -246,7 +246,9 @@ async def test_weather_service_caches_resolved_city_coordinates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_weather_service_waits_before_a_second_uncached_geocoding_request() -> None:
+async def test_weather_service_waits_before_a_second_uncached_geocoding_request() -> (
+    None
+):
     clock_values = iter([0.0, 0.25, 1.0])
     delays: list[float] = []
 

@@ -76,9 +76,7 @@ class ToolProgressToolset(WrapperToolset[Any]):
         toolset._selection_messages = self._selection_messages.copy()
         return toolset
 
-    async def get_tools(
-        self, ctx: RunContext[Any]
-    ) -> dict[str, ToolsetTool[Any]]:
+    async def get_tools(self, ctx: RunContext[Any]) -> dict[str, ToolsetTool[Any]]:
         tools = await super().get_tools(ctx)
         self._selection_messages = {
             name: message

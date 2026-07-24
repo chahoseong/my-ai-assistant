@@ -49,7 +49,9 @@ async def test_mcp_tool_callback_records_a_successful_model_facing_tool_call() -
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_callback_records_a_mcp_request_timeout_as_a_model_retryable_error() -> None:
+async def test_mcp_tool_callback_records_a_mcp_request_timeout_as_a_model_retryable_error() -> (
+    None
+):
     async def call_tool(
         _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
     ) -> object:
@@ -73,7 +75,9 @@ async def test_mcp_tool_callback_records_a_mcp_request_timeout_as_a_model_retrya
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_callback_preserves_a_bare_timeout_as_a_model_retryable_error() -> None:
+async def test_mcp_tool_callback_preserves_a_bare_timeout_as_a_model_retryable_error() -> (
+    None
+):
     async def call_tool(
         _: str, __: dict[str, Any], *, metadata: dict[str, Any] | None = None
     ) -> object:
