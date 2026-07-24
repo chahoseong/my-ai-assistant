@@ -5,6 +5,7 @@ export type StreamEvent =
   | { event: 'data'; data: string }
   | { event: 'done'; data: StreamDoneData }
   | { event: 'error'; data: string }
+  | { event: 'tool_selected'; data: { message: string } }
 
 export class InvalidDoneUsageError extends Error {
   constructor() {
@@ -52,6 +53,18 @@ function parseDoneData(data: string): StreamDoneData {
   }
 }
 
+function parseToolSelectedData(data: string): { message: string } | null {
+  try {
+    const body: unknown = JSON.parse(data)
+    if (!isRecord(body) || typeof body.message !== 'string') return null
+    const message = body.message.trim()
+    const messageLength = Array.from(message).length
+    return messageLength > 0 && messageLength <= 120 ? { message } : null
+  } catch {
+    return null
+  }
+}
+
 function consumeEvent(rawEvent: string): StreamEvent | null {
   let event = 'data'
   const data: string[] = []
@@ -59,9 +72,13 @@ function consumeEvent(rawEvent: string): StreamEvent | null {
     if (line.startsWith('event:')) event = line.slice(6).trim()
     if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
   }
-  if (data.length === 0 || !['data', 'done', 'error'].includes(event)) return null
+  if (data.length === 0 || !['data', 'done', 'error', 'tool_selected'].includes(event)) return null
   const value = data.join('\n')
   if (event === 'done') return { event: 'done', data: parseDoneData(value) }
+  if (event === 'tool_selected') {
+    const parsed = parseToolSelectedData(value)
+    return parsed === null ? null : { event: 'tool_selected', data: parsed }
+  }
   return { event: event as 'data' | 'error', data: value }
 }
 
